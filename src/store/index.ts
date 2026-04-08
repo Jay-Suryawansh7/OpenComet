@@ -41,6 +41,8 @@ export interface ChatState {
   clearMessages: () => void;
 }
 
+let _sharedInitPromise: Promise<void> | null = null;
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   currentConversationId: null,
@@ -49,40 +51,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentUrl: '',
   isInitialized: false,
 
-  initialize: async () => {
+  initialize: async (): Promise<void> => {
     if (get().isInitialized) return;
-    
-    try {
-      await initializeDatabase();
-      
-      const conversations = await conversationStorage.getAll();
-      if (conversations.length > 0) {
-        const lastConv = conversations[0];
-        const msgs = await messageStorage.getByConversation(lastConv.id);
-        set({ 
-          currentConversationId: lastConv.id,
-          messages: msgs.map(m => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            timestamp: m.timestamp,
-            agentId: m.agentId,
-            modelId: m.modelId,
-            metadata: m.metadata
-          })),
-          isInitialized: true 
-        });
-      } else {
-        const newConv = await conversationStorage.create('New Conversation');
-        set({ 
-          currentConversationId: newConv.id,
-          isInitialized: true 
-        });
-      }
-    } catch (error) {
-      console.error('Failed to initialize:', error);
-      set({ isInitialized: true });
+    if (_sharedInitPromise) {
+      await _sharedInitPromise;
+      return;
     }
+
+    _sharedInitPromise = (async () => {
+      try {
+        await initializeDatabase();
+        
+        const conversations = await conversationStorage.getAll();
+        if (conversations.length > 0) {
+          const lastConv = conversations[0];
+          const msgs = await messageStorage.getByConversation(lastConv.id);
+          set({ 
+            currentConversationId: lastConv.id,
+            messages: msgs.map(m => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              timestamp: m.timestamp,
+              agentId: m.agentId,
+              modelId: m.modelId,
+              metadata: m.metadata
+            })),
+            isInitialized: true 
+          });
+        } else {
+          const newConv = await conversationStorage.create('New Conversation');
+          set({ 
+            currentConversationId: newConv.id,
+            isInitialized: true 
+          });
+        }
+      } catch (error) {
+        console.error('Failed to initialize:', error);
+        set({ isInitialized: true });
+      }
+    })();
+
+    await _sharedInitPromise;
   },
 
   addMessage: async (message) => {

@@ -360,10 +360,18 @@ async function seedDefaultData(): Promise<void> {
     lastUpdated: now
   };
   
-  await db.agents.bulkAdd(defaultAgents);
-  await db.providers.bulkAdd(defaultProviders);
-  await db.settings.bulkAdd(defaultSettings);
-  await db.stats.add(defaultStats);
+  try {
+    await db.agents.bulkPut(defaultAgents);
+  } catch (e) { /* already seeded */ }
+  try {
+    await db.providers.bulkPut(defaultProviders);
+  } catch (e) { /* already seeded */ }
+  try {
+    await db.settings.bulkPut(defaultSettings);
+  } catch (e) { /* already seeded */ }
+  try {
+    await db.stats.put(defaultStats);
+  } catch (e) { /* already seeded */ }
 }
 
 export default db;
