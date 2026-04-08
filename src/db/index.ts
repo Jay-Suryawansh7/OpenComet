@@ -314,13 +314,20 @@ async function seedDefaultData(): Promise<void> {
       id: 'nvidia',
       name: 'NVIDIA NIM',
       icon: '▲',
-      apiKeyLabel: 'NVIDIA API Key',
+      apiKeyLabel: 'NVIDIA API Key (nvapi-)',
       apiKey: '',
       baseUrl: 'https://integrate.api.nvidia.com/v1',
       isEnabled: true,
       models: [
+        { id: 'meta/llama-3.3-70b-instruct', providerId: 'nvidia', name: 'Llama 3.3 70B', isEnabled: true },
         { id: 'meta/llama-3.1-405b-instruct', providerId: 'nvidia', name: 'Llama 3.1 405B', isEnabled: true },
-        { id: 'meta/llama-3.1-70b-instruct', providerId: 'nvidia', name: 'Llama 3.1 70B', isEnabled: true }
+        { id: 'meta/llama-3.1-70b-instruct', providerId: 'nvidia', name: 'Llama 3.1 70B', isEnabled: true },
+        { id: 'meta/llama-3.1-8b-instruct', providerId: 'nvidia', name: 'Llama 3.1 8B', isEnabled: true },
+        { id: 'mistralai/mixtral-8x7b-instruct-v0.1', providerId: 'nvidia', name: 'Mixtral 8x7B', isEnabled: true },
+        { id: 'google/gemma-2-27b-it', providerId: 'nvidia', name: 'Gemma 2 27B', isEnabled: true },
+        { id: 'nvidia/nemotron-4-340b-instruct', providerId: 'nvidia', name: 'Nemotron 4 340B', isEnabled: true },
+        { id: 'ai21labs/jamba-1.5-large-instruct', providerId: 'nvidia', name: 'Jamba 1.5 Large', isEnabled: true },
+        { id: 'deepseek-ai/deepseek-v3', providerId: 'nvidia', name: 'DeepSeek V3', isEnabled: true }
       ]
     },
     {

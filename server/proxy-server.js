@@ -36,7 +36,14 @@ app.post('/api/proxy/chat', async (req, res) => {
     }
 
     const isAnthropic = baseUrl.includes('anthropic');
+    const isNvidia = baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia.com');
+    const isOllama = baseUrl.includes('localhost:11434') || baseUrl.includes('ollama');
+    
     let requestBody;
+    let endpoint = `${baseUrl}/chat/completions`;
+    let headers = {
+      'Content-Type': 'application/json',
+    };
 
     if (isAnthropic) {
       const systemMessage = messages.find(m => m.role === 'system');
@@ -49,6 +56,29 @@ app.post('/api/proxy/chat', async (req, res) => {
         max_tokens: maxTokens,
         temperature,
       };
+    } else if (isNvidia) {
+      // NVIDIA NIM uses OpenAI-compatible API with nv-api-key header
+      headers['Authorization'] = `Bearer ${apiKey}`;
+      requestBody = {
+        model: model || 'meta/llama-3.1-405b-instruct',
+        messages: messages.map(m => ({
+          role: m.role,
+          content: m.content,
+        })),
+        temperature,
+        max_tokens: maxTokens,
+        stream: false,
+      };
+    } else if (isOllama) {
+      // Ollama - no auth needed
+      requestBody = {
+        model: model || 'llama3',
+        messages: messages.map(m => ({
+          role: m.role,
+          content: m.content,
+        })),
+        stream: false,
+      };
     } else {
       requestBody = {
         model: model || 'gpt-4o',
@@ -59,6 +89,9 @@ app.post('/api/proxy/chat', async (req, res) => {
         temperature,
         max_tokens: maxTokens,
       };
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
     }
 
     if (keepHistory && messages.length > 0) {
@@ -68,12 +101,9 @@ app.post('/api/proxy/chat', async (req, res) => {
       }
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-      },
+      headers,
       body: JSON.stringify(requestBody),
     });
 
