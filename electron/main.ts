@@ -2,7 +2,6 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import log from 'electron-log'
 import { spawn, ChildProcess } from 'child_process'
-import * as fs from 'fs'
 
 log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
@@ -12,56 +11,53 @@ log.info('OpenComet starting...')
 const isDev = process.env.NODE_ENV !== 'production' || !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
-let agentProcess: ChildProcess | null = null
+let proxyProcess: ChildProcess | null = null
 
-const AGENT_SCRIPT_PATH = isDev 
-  ? join(__dirname, '..', 'agent', 'server.py')
-  : join(process.resourcesPath || '', 'agent', 'server.py')
+const PROXY_SCRIPT_PATH = join(__dirname, '..', 'server', 'proxy-server.js')
 
-function startAgentServer(): boolean {
-  if (agentProcess) {
-    log.info('Agent server already running')
+function startProxyServer(): boolean {
+  if (proxyProcess) {
+    log.info('Proxy server already running')
     return true
   }
   
   try {
-    // Check if Python agent exists
-    if (!fs.existsSync(AGENT_SCRIPT_PATH)) {
-      log.warn(`Agent script not found at: ${AGENT_SCRIPT_PATH}`)
-      return false
+    if (!isDev) {
+      log.info('Production mode - proxy server expected to be bundled')
+      return true
     }
     
-    log.info('Starting agent server...')
-    agentProcess = spawn('python3', [AGENT_SCRIPT_PATH], {
+    log.info('Starting proxy server...')
+    proxyProcess = spawn('node', [PROXY_SCRIPT_PATH], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env }
+      env: { ...process.env, PROXY_PORT: '8765' }
     })
     
-    agentProcess.stdout?.on('data', (data) => {
-      log.info(`Agent: ${data}`)
+    proxyProcess.stdout?.on('data', (data) => {
+      log.info(`Proxy: ${data}`)
     })
     
-    agentProcess.stderr?.on('data', (data) => {
-      log.error(`Agent error: ${data}`)
+    proxyProcess.stderr?.on('data', (data) => {
+      log.error(`Proxy error: ${data}`)
     })
     
-    agentProcess.on('close', (code) => {
-      log.info(`Agent process exited with code: ${code}`)
-      agentProcess = null
+    proxyProcess.on('close', (code) => {
+      log.info(`Proxy process exited with code: ${code}`)
+      proxyProcess = null
     })
     
     return true
   } catch (error) {
-    log.error('Failed to start agent server:', error)
+    log.error('Failed to start proxy server:', error)
     return false
   }
 }
 
-function stopAgentServer() {
-  if (agentProcess) {
-    log.info('Stopping agent server...')
-    agentProcess.kill()
-    agentProcess = null
+function stopProxyServer() {
+  if (proxyProcess) {
+    log.info('Stopping proxy server...')
+    proxyProcess.kill()
+    proxyProcess = null
   }
 }
 
@@ -77,7 +73,7 @@ function createWindow() {
       preload: join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox: false,
       webSecurity: true,
       allowRunningInsecureContent: false
     },
@@ -111,9 +107,7 @@ function createWindow() {
 app.whenReady().then(() => {
   log.info('App ready')
   
-  // Start the agent server
-  startAgentServer()
-  
+  startProxyServer()
   createWindow()
 
   app.on('activate', () => {
@@ -132,7 +126,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   log.info('App quitting...')
-  stopAgentServer()
+  stopProxyServer()
 })
 
 ipcMain.handle('get-app-info', () => {

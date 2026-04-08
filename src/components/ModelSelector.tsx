@@ -12,9 +12,6 @@ export function ModelSelector() {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const activeProvider = providers.find((p) => p.id === activeProviderId)
-  const activeModel = activeProvider?.models.find((m) => m.id === activeModelId)
-
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -28,14 +25,13 @@ export function ModelSelector() {
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all',
-          'text-white/50 hover:text-white/80 hover:bg-white/5',
-          open && 'bg-white/5 text-white/80'
+          'flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium transition-all',
+          'text-white/40 hover:text-white/65 hover:bg-white/[0.04]',
+          open && 'bg-white/[0.04] text-white/65'
         )}
       >
-        <span className="text-[15px] leading-none">{activeProvider?.icon}</span>
-        <span>{activeModel?.name || 'Select model'}</span>
-        <ChevronDown size={13} className={cn('transition-transform', open && 'rotate-180')} />
+        <span>Model</span>
+        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (

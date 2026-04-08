@@ -1,204 +1,366 @@
-import { create } from 'zustand'
+import { create } from 'zustand';
+import { initializeDatabase, Provider } from '@/db';
+import { settingsStorage, providerStorage, conversationStorage, messageStorage } from '@/db/storage';
+import { agentService, AgentState } from '@/db/agent-service';
 
-// ─── Messages ───────────────────────────────────────────────
 export interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: number
+  id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  timestamp: number;
+  agentId?: string;
+  modelId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ChatState {
-  messages: Message[]
-  isLoading: boolean
-  agentStatus: 'idle' | 'thinking' | 'browsing' | 'ready'
-  currentUrl: string
+  messages: Message[];
+  currentConversationId: string | null;
+  isLoading: boolean;
+  agentStatus: 'idle' | 'thinking' | 'browsing' | 'ready' | 'error';
+  currentUrl: string;
+  isInitialized: boolean;
 
-  addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void
-  setLoading: (loading: boolean) => void
-  setAgentStatus: (status: 'idle' | 'thinking' | 'browsing' | 'ready') => void
-  setCurrentUrl: (url: string) => void
-  clearMessages: () => void
+  initialize: () => Promise<void>;
+  addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => Promise<void>;
+  setLoading: (loading: boolean) => void;
+  setAgentStatus: (status: 'idle' | 'thinking' | 'browsing' | 'ready' | 'error') => void;
+  setCurrentUrl: (url: string) => void;
+  sendMessage: (content: string) => Promise<string | null>;
+  loadConversation: (id: string) => Promise<void>;
+  loadConversations: () => Promise<Conversation[]>;
+  createConversation: (title?: string) => Promise<string>;
+  deleteConversation: (id: string) => Promise<void>;
+  clearMessages: () => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
+  currentConversationId: null,
   isLoading: false,
   agentStatus: 'idle',
   currentUrl: '',
+  isInitialized: false,
 
-  addMessage: (message) =>
+  initialize: async () => {
+    if (get().isInitialized) return;
+    
+    try {
+      await initializeDatabase();
+      
+      const conversations = await conversationStorage.getAll();
+      if (conversations.length > 0) {
+        const lastConv = conversations[0];
+        const msgs = await messageStorage.getByConversation(lastConv.id);
+        set({ 
+          currentConversationId: lastConv.id,
+          messages: msgs.map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            timestamp: m.timestamp,
+            agentId: m.agentId,
+            modelId: m.modelId,
+            metadata: m.metadata
+          })),
+          isInitialized: true 
+        });
+      } else {
+        const newConv = await conversationStorage.create('New Conversation');
+        set({ 
+          currentConversationId: newConv.id,
+          isInitialized: true 
+        });
+      }
+    } catch (error) {
+      console.error('Failed to initialize:', error);
+      set({ isInitialized: true });
+    }
+  },
+
+  addMessage: async (message) => {
+    const { currentConversationId } = get();
+    if (!currentConversationId) return;
+    
+    const storedMsg = await messageStorage.create(
+      currentConversationId,
+      message.role,
+      message.content,
+      message.metadata
+    );
+    
     set((state) => ({
       messages: [
         ...state.messages,
         {
-          ...message,
-          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: Date.now(),
-        },
-      ],
-    })),
+          id: storedMsg.id,
+          role: storedMsg.role,
+          content: storedMsg.content,
+          timestamp: storedMsg.timestamp,
+          agentId: storedMsg.agentId,
+          modelId: storedMsg.modelId,
+          metadata: storedMsg.metadata
+        }
+      ]
+    }));
+  },
 
   setLoading: (loading) => set({ isLoading: loading }),
   setAgentStatus: (status) => set({ agentStatus: status }),
   setCurrentUrl: (url) => set({ currentUrl: url }),
-  clearMessages: () => set({ messages: [] }),
-}))
 
-// ─── Provider / Model ──────────────────────────────────────
+  sendMessage: async (content: string) => {
+    const { addMessage, setLoading, setAgentStatus } = get();
+    
+    await addMessage({ role: 'user', content });
+    setLoading(true);
+    setAgentStatus('thinking');
+    
+    try {
+      const result = await agentService.sendMessage(content);
+      
+      if (result) {
+        await addMessage({ 
+          role: 'assistant', 
+          content: result.response,
+          metadata: {
+            executionTime: result.executionTime,
+            citations: result.citations.length
+          }
+        });
+        setAgentStatus('ready');
+        return result.response;
+      } else {
+        setAgentStatus('error');
+        return null;
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await addMessage({ role: 'system', content: `Error: ${errorMessage}` });
+      setAgentStatus('idle');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  },
+
+  loadConversation: async (id: string) => {
+    const msgs = await messageStorage.getByConversation(id);
+    set({ 
+      currentConversationId: id,
+      messages: msgs.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        agentId: m.agentId,
+        modelId: m.modelId,
+        metadata: m.metadata
+      }))
+    });
+  },
+
+  loadConversations: async () => {
+    return conversationStorage.getAll();
+  },
+
+  createConversation: async (title?: string) => {
+    const conv = await conversationStorage.create(title || 'New Conversation');
+    set({ 
+      currentConversationId: conv.id,
+      messages: []
+    });
+    return conv.id;
+  },
+
+  deleteConversation: async (id: string) => {
+    await conversationStorage.delete(id);
+    const { currentConversationId } = get();
+    if (currentConversationId === id) {
+      const convs = await conversationStorage.getAll();
+      if (convs.length > 0) {
+        await get().loadConversation(convs[0].id);
+      } else {
+        const newConv = await conversationStorage.create('New Conversation');
+        set({ currentConversationId: newConv.id, messages: [] });
+      }
+    }
+  },
+
+  clearMessages: () => set({ messages: [] })
+}));
+
 export interface ProviderModel {
-  id: string
-  name: string
-  provider: string
+  id: string;
+  providerId: string;
+  name: string;
+  isEnabled: boolean;
 }
-
-export interface ProviderConfig {
-  id: string
-  name: string
-  icon: string           // emoji or short id
-  apiKeyLabel: string
-  apiKey: string
-  baseUrl: string
-  models: ProviderModel[]
-}
-
-const DEFAULT_PROVIDERS: ProviderConfig[] = [
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    icon: '⬡',
-    apiKeyLabel: 'OpenAI API Key',
-    apiKey: '',
-    baseUrl: 'https://api.openai.com/v1',
-    models: [
-      { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai' },
-      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai' },
-      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'openai' },
-    ],
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    icon: '◈',
-    apiKeyLabel: 'Anthropic API Key',
-    apiKey: '',
-    baseUrl: 'https://api.anthropic.com',
-    models: [
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic' },
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', provider: 'anthropic' },
-      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', provider: 'anthropic' },
-    ],
-  },
-  {
-    id: 'google',
-    name: 'Google AI',
-    icon: '◇',
-    apiKeyLabel: 'Gemini API Key',
-    apiKey: '',
-    baseUrl: 'https://generativelanguage.googleapis.com',
-    models: [
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'google' },
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'google' },
-    ],
-  },
-  {
-    id: 'nvidia',
-    name: 'NVIDIA NIM',
-    icon: '▲',
-    apiKeyLabel: 'NVIDIA API Key',
-    apiKey: '',
-    baseUrl: 'https://integrate.api.nvidia.com/v1',
-    models: [
-      { id: 'meta/llama-3.1-405b-instruct', name: 'Llama 3.1 405B', provider: 'nvidia' },
-      { id: 'meta/llama-3.1-70b-instruct', name: 'Llama 3.1 70B', provider: 'nvidia' },
-    ],
-  },
-  {
-    id: 'ollama',
-    name: 'Ollama (Local)',
-    icon: '⊙',
-    apiKeyLabel: 'Not required',
-    apiKey: '',
-    baseUrl: 'http://localhost:11434',
-    models: [
-      { id: 'llama3', name: 'Llama 3', provider: 'ollama' },
-      { id: 'mistral', name: 'Mistral', provider: 'ollama' },
-      { id: 'codellama', name: 'Code Llama', provider: 'ollama' },
-    ],
-  },
-]
 
 export interface SettingsState {
-  providers: ProviderConfig[]
-  activeProviderId: string
-  activeModelId: string
-  temperature: number
-  agentServerUrl: string
-  sidebarCollapsed: boolean
+  providers: Provider[];
+  activeProviderId: string;
+  activeModelId: string;
+  temperature: number;
+  agentServerUrl: string;
+  sidebarCollapsed: boolean;
+  isLoading: boolean;
 
-  setProviders: (providers: ProviderConfig[]) => void
-  setActiveProvider: (id: string) => void
-  setActiveModel: (id: string) => void
-  updateProviderKey: (providerId: string, key: string) => void
-  setTemperature: (temp: number) => void
-  setAgentServerUrl: (url: string) => void
-  toggleSidebar: () => void
-  setSidebarCollapsed: (collapsed: boolean) => void
-
-  // Derived helpers
-  getActiveProvider: () => ProviderConfig | undefined
-  getActiveModel: () => ProviderModel | undefined
+  loadSettings: () => Promise<void>;
+  setActiveProvider: (id: string) => Promise<void>;
+  setActiveModel: (id: string) => Promise<void>;
+  updateProviderKey: (providerId: string, key: string) => Promise<void>;
+  setTemperature: (temp: number) => Promise<void>;
+  setAgentServerUrl: (url: string) => Promise<void>;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => Promise<void>;
+  getActiveProvider: () => Provider | undefined;
+  getActiveModel: () => ProviderModel | undefined;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  providers: DEFAULT_PROVIDERS,
+  providers: [],
   activeProviderId: 'openai',
   activeModelId: 'gpt-4o',
   temperature: 0.7,
   agentServerUrl: 'http://localhost:8765',
   sidebarCollapsed: false,
+  isLoading: true,
 
-  setProviders: (providers) => set({ providers }),
-  setActiveProvider: (id) => {
-    const provider = get().providers.find((p) => p.id === id)
+  loadSettings: async () => {
+    set({ isLoading: true });
+    try {
+      const providers = await providerStorage.getAll();
+      const activeProviderId = await settingsStorage.get('activeProviderId') as string || 'openai';
+      const activeModelId = await settingsStorage.get('activeModelId') as string || 'gpt-4o';
+      const temperature = await settingsStorage.get('temperature') as number || 0.7;
+      const agentServerUrl = await settingsStorage.get('agentServerUrl') as string || 'http://localhost:8765';
+      const sidebarCollapsed = await settingsStorage.get('sidebarCollapsed') as boolean || false;
+      
+      set({ 
+        providers,
+        activeProviderId,
+        activeModelId,
+        temperature,
+        agentServerUrl,
+        sidebarCollapsed,
+        isLoading: false
+      });
+    } catch (error) {
+      console.error('Failed to load settings:', error);
+      set({ isLoading: false });
+    }
+  },
+
+  setActiveProvider: async (id) => {
+    const provider = get().providers.find((p) => p.id === id);
+    await settingsStorage.set('activeProviderId', id);
     set({
       activeProviderId: id,
-      activeModelId: provider?.models[0]?.id || '',
-    })
+      activeModelId: provider?.models[0]?.id || ''
+    });
   },
-  setActiveModel: (id) => set({ activeModelId: id }),
-  updateProviderKey: (providerId, key) =>
+
+  setActiveModel: async (id) => {
+    await settingsStorage.set('activeModelId', id);
+    set({ activeModelId: id });
+  },
+
+  updateProviderKey: async (providerId, key) => {
+    await providerStorage.updateApiKey(providerId, key);
     set((state) => ({
       providers: state.providers.map((p) =>
         p.id === providerId ? { ...p, apiKey: key } : p
-      ),
-    })),
-  setTemperature: (temp) => set({ temperature: temp }),
-  setAgentServerUrl: (url) => set({ agentServerUrl: url }),
+      )
+    }));
+  },
+
+  setTemperature: async (temp) => {
+    await settingsStorage.set('temperature', temp);
+    set({ temperature: temp });
+  },
+
+  setAgentServerUrl: async (url) => {
+    await settingsStorage.set('agentServerUrl', url);
+    set({ agentServerUrl: url });
+  },
+
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+
+  setSidebarCollapsed: async (collapsed) => {
+    await settingsStorage.set('sidebarCollapsed', collapsed);
+    set({ sidebarCollapsed: collapsed });
+  },
 
   getActiveProvider: () => {
-    const state = get()
-    return state.providers.find((p) => p.id === state.activeProviderId)
+    const state = get();
+    return state.providers.find((p) => p.id === state.activeProviderId);
   },
-  getActiveModel: () => {
-    const state = get()
-    const provider = state.providers.find((p) => p.id === state.activeProviderId)
-    return provider?.models.find((m) => m.id === state.activeModelId)
-  },
-}))
 
-// ─── UI state (sidebar section, etc.) ───────────────────────
-export type SidebarSection = 'search' | 'computer' | 'history' | 'discover' | 'spaces' | 'settings'
+  getActiveModel: () => {
+    const state = get();
+    const provider = state.providers.find((p) => p.id === state.activeProviderId);
+    return provider?.models.find((m) => m.id === state.activeModelId);
+  }
+}));
+
+export type SidebarSection = 'search' | 'computer' | 'history' | 'discover' | 'spaces' | 'settings';
 
 export interface UIState {
-  activeSection: SidebarSection
-  setActiveSection: (section: SidebarSection) => void
+  activeSection: SidebarSection;
+  setActiveSection: (section: SidebarSection) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeSection: 'search',
-  setActiveSection: (section) => set({ activeSection: section }),
-}))
+  setActiveSection: (section) => set({ activeSection: section })
+}));
+
+export interface AgentMonitorState {
+  agentStates: Record<string, 'idle' | 'busy' | 'error' | 'offline'>;
+  currentTask?: string;
+  subscribe: (listener: (state: AgentState) => void) => () => void;
+  refreshStatus: () => Promise<void>;
+}
+
+export const useAgentMonitorStore = create<AgentMonitorState>((set, get) => ({
+  agentStates: {
+    coordinator: 'offline',
+    researcher: 'offline',
+    coder: 'offline',
+    browser: 'offline',
+    'fact-checker': 'offline',
+    summarizer: 'offline'
+  },
+  currentTask: undefined,
+
+  subscribe: (listener) => {
+    return agentService.subscribe((state) => {
+      set({ 
+        currentTask: state.message,
+        agentStates: {
+          ...get().agentStates,
+          ...Object.fromEntries(state.activeAgents.map(a => [a, 'busy'])),
+          ...(state.status === 'idle' ? {} : { coordinator: state.status === 'error' ? 'error' : 'busy' })
+        }
+      });
+      listener(state);
+    });
+  },
+
+  refreshStatus: async () => {
+    try {
+      const status = await agentService.getAgentStatus();
+      set({ agentStates: status });
+    } catch (error) {
+      console.error('Failed to refresh agent status:', error);
+    }
+  }
+}));
