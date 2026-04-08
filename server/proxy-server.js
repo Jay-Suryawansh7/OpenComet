@@ -16,7 +16,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const conversationHistory: Array<{ role: string; content: string }> = [];
+const conversationHistory = [];
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'opencomet-proxy', timestamp: Date.now() });
@@ -114,7 +114,7 @@ app.post('/api/tools/web-search', async (req, res) => {
 
     if (response.ok) {
       const data = await response.json();
-      const results = (data.web?.results || []).slice(0, numResults).map((r: { url?: string; title?: string; description?: string }) => ({
+        const results = (data.web?.results || []).slice(0, numResults).map((r) => ({
         title: r.title || 'No title',
         url: r.url || '',
         snippet: r.description || '',
@@ -209,9 +209,9 @@ app.post('/api/tools/execute-code', async (req, res) => {
     const { code, language = 'javascript' } = req.body;
 
     if (language === 'javascript' || language === 'js') {
-      const logs: string[] = [];
+      const logs = [];
       const originalLog = console.log;
-      console.log = (...args: unknown[]) => {
+      console.log = (...args) => {
         logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
       };
 
@@ -255,8 +255,8 @@ app.get('/api/providers', (req, res) => {
   res.json({ providers });
 });
 
-function parseSearchResults(html: string) {
-  const results: Array<{ title: string; url: string; snippet: string }> = [];
+function parseSearchResults(html) {
+  const results = [];
 
   const titleRegex = /<a href="(https?:\/\/[^"]+)"[^>]*class="[^"]*BNeawe[^"]*"[^>]*>([^<]+)<\/a>/g;
   const snippetRegex = /<span class="[^"]*aCOpRe[^"]*">([^<]+)<\/span>/g;
@@ -283,12 +283,12 @@ function parseSearchResults(html: string) {
   return results;
 }
 
-function extractTitle(html: string) {
+function extractTitle(html) {
   const match = html.match(/<title>([^<]+)<\/title>/i);
   return match ? match[1].trim() : 'Untitled';
 }
 
-function extractContent(html: string) {
+function extractContent(html) {
   const withoutScripts = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   const withoutStyles = withoutScripts.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
   const withoutNav = withoutStyles.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');

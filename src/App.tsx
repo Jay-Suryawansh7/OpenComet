@@ -4,14 +4,18 @@ import { ChatInput } from '@/components/ChatInput'
 import { SuggestionCards } from '@/components/SuggestionCards'
 import { ProviderSettings } from '@/components/ProviderSettings'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { TabBar } from '@/components/TabBar'
+import { SearchResultsView } from '@/components/SearchResultsView'
 import { useChatStore, useUIStore, useAgentMonitorStore, useSettingsStore } from '@/store'
+import { useBrowserStore } from '@/store/browserStore'
+import { useSearchStore } from '@/store/searchStore'
 import { useAgent } from '@/hooks/useAgent'
 import { cn } from '@/lib/utils'
 import {
-  Sparkles, Settings2, Zap, Activity, Clock, Compass, LayoutGrid, Trash2,
+  Settings2, Zap, Activity, Clock, Compass, LayoutGrid, Trash2,
   TrendingUp, Heart, BarChart3, DollarSign, LineChart, Newspaper,
   Pill, Apple, Dna, Thermometer, Wind, Search,
-  Plus, ArrowRight,
+  Plus, ArrowRight, Globe, Bot, Pause, ExternalLink
 } from 'lucide-react'
 
 function App() {
@@ -19,6 +23,9 @@ function App() {
   const { sendMessage, error } = useAgent()
   const { activeSection } = useUIStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { hasResults: hasSearchResults, isSearching, performSearch } = useSearchStore()
+
+  const { initialize: initBrowser } = useBrowserStore()
 
   useEffect(() => {
     const init = async () => {
@@ -26,6 +33,7 @@ function App() {
       const { loadSettings } = useSettingsStore.getState()
       await initialize()
       await loadSettings()
+      await initBrowser()
     }
     init()
   }, [])
@@ -35,15 +43,25 @@ function App() {
   }, [messages])
 
   const handleSubmit = async (content: string) => {
+    // Trigger both the search results view and the agent
+    performSearch(content)
+    useBrowserStore.getState().setAgentActive(true)
     await sendMessage(content)
   }
 
-  const showingChat = messages.length > 0 || isLoading
+  const showingChat = messages.length > 0 || isLoading || hasSearchResults || isSearching
+  const isBrowserVisible = activeSection === 'search' && !showingChat
+
+  useEffect(() => {
+    if (window.electronAPI?.browser?.setVisibility) {
+      window.electronAPI.browser.setVisibility(isBrowserVisible)
+    }
+  }, [isBrowserVisible])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0d1017]">
-      {/* ── Browser chrome — full width ──────────────────── */}
-      <BrowserChrome />
+      {/* ── Browser tabs — full width ──────────────────── */}
+      <TabBar />
 
       {/* ── Body — sidebar + content ─────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
@@ -68,16 +86,28 @@ function App() {
             <HealthPanel />
           ) : (
             <>
-              <ShieldBar />
-
+              <AgentModeBar />
               {showingChat ? (
-                <ChatView
-                  messages={messages}
-                  isLoading={isLoading}
-                  onSubmit={handleSubmit}
-                  messagesEndRef={messagesEndRef}
-                  error={error}
-                />
+                (hasSearchResults || isSearching) ? (
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <SearchResultsView />
+                    {/* Bottom input */}
+                    <div className="shrink-0 px-6 pb-5 pt-2 bg-gradient-to-t from-[#0d1017] via-[#0d1017] to-transparent">
+                      <ChatInput onSubmit={handleSubmit} isLoading={isLoading} />
+                      {error && (
+                        <div className="max-w-[640px] mx-auto mt-2 text-[12px] text-red-400/60">{error}</div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <ChatContainer
+                    messages={messages}
+                    isLoading={isLoading}
+                    onSubmit={handleSubmit}
+                    messagesEndRef={messagesEndRef}
+                    error={error}
+                  />
+                )
               ) : (
                 <HomeView onSubmit={handleSubmit} isLoading={isLoading} />
               )}
@@ -89,115 +119,14 @@ function App() {
   )
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Browser chrome top bar
-   ═══════════════════════════════════════════════════════════ */
-function BrowserChrome() {
-  return (
-    <div className="flex items-center h-[34px] shrink-0 border-b border-white/[0.06] bg-[#111419] px-2.5 gap-2 z-20">
-      {/* Nav arrows */}
-      <div className="flex items-center gap-0">
-        <NavBtn><ChevronSVG dir="left" /></NavBtn>
-        <NavBtn><ChevronSVG dir="right" /></NavBtn>
-      </div>
-
-      {/* Refresh */}
-      <NavBtn>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-          <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-        </svg>
-      </NavBtn>
-
-      {/* Lock */}
-      <NavBtn>
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-      </NavBtn>
-
-      {/* URL bar area */}
-      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-        {/* Colored favicon/icon */}
-        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gradient-to-br from-cyan-400 to-teal-500">
-          <Zap size={8} className="text-black" />
-        </div>
-        <span className="text-[12.5px] text-white/30 truncate select-none">
-          Ask anything or navigate…
-        </span>
-      </div>
-
-      {/* Right toolbar icons */}
-      <div className="flex items-center gap-0">
-        {/* Camera/eye */}
-        <NavBtn>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-          </svg>
-        </NavBtn>
-
-        {/* Link */}
-        <NavBtn>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-          </svg>
-        </NavBtn>
-
-        {/* Screenshot */}
-        <NavBtn>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-            <circle cx="12" cy="13" r="4" />
-          </svg>
-        </NavBtn>
-
-        {/* Share */}
-        <NavBtn>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
-          </svg>
-        </NavBtn>
-
-        {/* List */}
-        <NavBtn>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-          </svg>
-        </NavBtn>
-
-        {/* Chart */}
-        <NavBtn>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-          </svg>
-        </NavBtn>
-      </div>
-
-      {/* Divider */}
-      <div className="h-3.5 w-[1px] bg-white/[0.08]" />
-
-      {/* Assistant pill */}
-      <button className="flex items-center gap-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.05] px-2.5 py-[3px] transition-all">
-        <div className="h-3.5 w-3.5 rounded-full bg-gradient-to-br from-violet-400 to-cyan-400 flex items-center justify-center">
-          <Sparkles size={7} className="text-white" />
-        </div>
-        <span className="text-[11.5px] font-medium text-white/55">Assistant</span>
-      </button>
-    </div>
-  )
-}
-
-/* ── Shield badge bar ────────────────────────────────────── */
-function ShieldBar() {
+/* ── Agent mode toggle bar ─────────────────────────────────── */
+function AgentModeBar() {
+  const { agentMode, setAgentMode, agentActive } = useBrowserStore()
   const { agentStates } = useAgentMonitorStore()
   const activeAgents = Object.entries(agentStates).filter(([_, status]) => status === 'busy')
-  
+
   return (
-    <div className="relative flex items-center justify-center h-[30px] shrink-0 border-b border-white/[0.03] bg-[#0d1017]">
-      {/* Agent status indicators */}
+    <div className="relative flex items-center justify-between h-[30px] shrink-0 border-b border-white/[0.03] bg-[#0d1017] px-3">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1.5 rounded-full bg-cyan-500/[0.06] border border-cyan-500/[0.08] px-2.5 py-[2px]">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-cyan-400">
@@ -207,12 +136,11 @@ function ShieldBar() {
           <span className="text-[11px] font-medium text-cyan-400/60">
             {activeAgents.length > 0 
               ? `${activeAgents.length} agent${activeAgents.length > 1 ? 's' : ''} active`
-              : 'Swarm Ready'
+              : agentActive ? 'Agent browsing...' : 'Swarm Ready'
             }
           </span>
         </div>
 
-        {/* Active agent pills */}
         {activeAgents.slice(0, 3).map(([agent]) => (
           <div key={agent} className="flex items-center gap-1 rounded-full bg-violet-500/[0.06] border border-violet-500/[0.08] px-2 py-[1px]">
             <Activity size={9} className="text-violet-400 animate-pulse" />
@@ -221,12 +149,26 @@ function ShieldBar() {
         ))}
       </div>
 
-      {/* Right icon */}
-      <button className="absolute right-3 text-white/15 hover:text-white/30 transition-colors">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
+      <button
+        onClick={() => setAgentMode(agentMode === 'autonomous' ? 'confirmation' : 'autonomous')}
+        className={cn(
+          'flex items-center gap-1.5 rounded-full px-2.5 py-[3px] border transition-all text-[11px] font-medium',
+          agentMode === 'autonomous'
+            ? 'bg-cyan-500/[0.06] border-cyan-500/[0.15] text-cyan-400/70 hover:bg-cyan-500/[0.1]'
+            : 'bg-amber-500/[0.06] border-amber-500/[0.15] text-amber-400/70 hover:bg-amber-500/[0.1]'
+        )}
+      >
+        {agentMode === 'autonomous' ? (
+          <>
+            <Bot size={10} />
+            Auto
+          </>
+        ) : (
+          <>
+            <Pause size={10} />
+            Confirm
+          </>
+        )}
       </button>
     </div>
   )
@@ -234,6 +176,16 @@ function ShieldBar() {
 
 /* ── Home (empty state) ──────────────────────────────────── */
 function HomeView({ onSubmit, isLoading }: { onSubmit: (msg: string) => void; isLoading: boolean }) {
+  const { setActiveSection } = useUIStore()
+
+  const handleTryAssistant = () => {
+    onSubmit('Help me with my tasks')
+  }
+
+  const handleCustomize = () => {
+    setActiveSection('settings')
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center relative overflow-hidden">
       {/* Ambient glow */}
@@ -246,11 +198,11 @@ function HomeView({ onSubmit, isLoading }: { onSubmit: (msg: string) => void; is
 
         {/* Bottom actions */}
         <div className="flex items-center gap-5 mt-3">
-          <button className="flex items-center gap-1.5 text-[12.5px] text-white/30 hover:text-white/50 transition-colors">
+          <button onClick={handleTryAssistant} className="flex items-center gap-1.5 text-[12.5px] text-white/30 hover:text-white/50 transition-colors">
             <Zap size={13} className="text-cyan-500/40" />
             Try Assistant
           </button>
-          <button className="flex items-center gap-1.5 text-[12.5px] text-white/30 hover:text-white/50 transition-colors">
+          <button onClick={handleCustomize} className="flex items-center gap-1.5 text-[12.5px] text-white/30 hover:text-white/50 transition-colors">
             <Settings2 size={13} className="text-white/20" />
             Customize
           </button>
@@ -260,8 +212,8 @@ function HomeView({ onSubmit, isLoading }: { onSubmit: (msg: string) => void; is
   )
 }
 
-/* ── Chat message view ───────────────────────────────────── */
-function ChatView({
+/* ── Chat container with reference cards ─────────────────── */
+function ChatContainer({
   messages,
   isLoading,
   onSubmit,
@@ -274,6 +226,9 @@ function ChatView({
   messagesEndRef: React.RefObject<HTMLDivElement>
   error: string | null
 }) {
+  const { visitedSites } = useBrowserStore()
+  const hasMessages = messages.length > 0
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -306,6 +261,39 @@ function ChatView({
                   </div>
                   <span className="text-[12px] text-white/25">Thinking…</span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {hasMessages && visitedSites.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="text-[11px] text-white/25 uppercase tracking-wider px-1">Visited Sites</div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {visitedSites.map((site) => {
+                  const getHostname = (url: string) => {
+                    try { return new URL(url).hostname } catch { return url }
+                  }
+                  return (
+                    <a
+                      key={site.id}
+                      href={site.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:bg-white/[0.04] hover:border-white/[0.1] transition-all shrink-0 min-w-0 max-w-[200px] group"
+                    >
+                      <Globe size={12} className="shrink-0 text-cyan-400/50" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] text-white/60 truncate group-hover:text-white/80 transition-colors">
+                          {site.title || getHostname(site.url)}
+                        </div>
+                        <div className="text-[10px] text-white/25 truncate">
+                          {getHostname(site.url)}
+                        </div>
+                      </div>
+                      <ExternalLink size={10} className="shrink-0 text-white/20 group-hover:text-white/40 transition-colors" />
+                    </a>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -890,23 +878,6 @@ function timeAgo(timestamp: number): string {
   if (minutes < 60) return `${minutes}m ago`
   if (hours < 24) return `${hours}h ago`
   return `${days}d ago`
-}
-
-/* ── Tiny helpers ─────────────────────────────────────────── */
-function NavBtn({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex h-[24px] w-[24px] items-center justify-center rounded text-white/20 hover:text-white/45 hover:bg-white/[0.04] transition-all">
-      {children}
-    </button>
-  )
-}
-
-function ChevronSVG({ dir }: { dir: 'left' | 'right' }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      {dir === 'left' ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
-    </svg>
-  )
 }
 
 export default App

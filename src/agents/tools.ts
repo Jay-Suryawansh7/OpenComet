@@ -1,4 +1,5 @@
 import { AgentId, Citation } from './types';
+import { cdpNavigate, cdpSearch, cdpScreenshot, cdpGetPageContent, cdpGetTabs, cdpNewTab, cdpCloseTab, cdpGoBack, cdpGoForward, cdpReload } from './tools/cdp-tools';
 
 export interface ToolDefinition {
   name: string;
@@ -456,6 +457,104 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
   execute_code: new ExecuteCodeTool().toDefinition(),
   system_info: new SystemInfoTool().toDefinition(),
   calculate: new CalculatorTool().toDefinition(),
+  cdp_navigate: {
+    name: 'cdp_navigate',
+    description: 'Navigate to a URL. Use for visiting websites.',
+    parameters: {
+      url: { type: 'string', description: 'URL to navigate to', required: true }
+    },
+    execute: async (params) => {
+      const result = await cdpNavigate(params.url as string)
+      return { success: result.success, content: result.success ? JSON.stringify(result.data) : undefined, error: result.error }
+    }
+  },
+  cdp_search: {
+    name: 'cdp_search',
+    description: 'Search the web and open results in browser.',
+    parameters: {
+      query: { type: 'string', description: 'Search query', required: true }
+    },
+    execute: async (params) => {
+      const result = await cdpSearch(params.query as string)
+      return { success: result.success, content: result.success ? JSON.stringify(result.data) : undefined, error: result.error }
+    }
+  },
+  cdp_screenshot: {
+    name: 'cdp_screenshot',
+    description: 'Capture screenshot of the current page.',
+    parameters: {},
+    execute: async () => {
+      const result = await cdpScreenshot()
+      return { success: result.success, content: result.success ? '[Screenshot captured]' : undefined, data: result.data, error: result.error }
+    }
+  },
+  cdp_get_page_content: {
+    name: 'cdp_get_page_content',
+    description: 'Extract text content from the current page.',
+    parameters: {},
+    execute: async () => {
+      const result = await cdpGetPageContent()
+      return { success: result.success, content: result.success ? (result.data as { text?: string })?.text : undefined, data: result.data, error: result.error }
+    }
+  },
+  cdp_get_tabs: {
+    name: 'cdp_get_tabs',
+    description: 'List all open browser tabs.',
+    parameters: {},
+    execute: async () => {
+      const result = await cdpGetTabs()
+      return { success: result.success, content: result.success ? JSON.stringify(result.data) : undefined, error: result.error }
+    }
+  },
+  cdp_new_tab: {
+    name: 'cdp_new_tab',
+    description: 'Open a new browser tab.',
+    parameters: {
+      url: { type: 'string', description: 'Optional URL', required: false }
+    },
+    execute: async (params) => {
+      const result = await cdpNewTab(params.url as string | undefined)
+      return { success: result.success, content: result.success ? JSON.stringify(result.data) : undefined, error: result.error }
+    }
+  },
+  cdp_close_tab: {
+    name: 'cdp_close_tab',
+    description: 'Close a browser tab.',
+    parameters: {
+      tabId: { type: 'string', description: 'Tab ID to close', required: false }
+    },
+    execute: async (params) => {
+      const result = await cdpCloseTab(params.tabId as string | undefined)
+      return { success: result.success, content: result.success ? JSON.stringify(result.data) : undefined, error: result.error }
+    }
+  },
+  cdp_go_back: {
+    name: 'cdp_go_back',
+    description: 'Navigate back in browser history.',
+    parameters: {},
+    execute: async () => {
+      const result = await cdpGoBack()
+      return { success: result.success, content: result.success ? 'Navigated back' : undefined, error: result.error }
+    }
+  },
+  cdp_go_forward: {
+    name: 'cdp_go_forward',
+    description: 'Navigate forward in browser history.',
+    parameters: {},
+    execute: async () => {
+      const result = await cdpGoForward()
+      return { success: result.success, content: result.success ? 'Navigated forward' : undefined, error: result.error }
+    }
+  },
+  cdp_reload: {
+    name: 'cdp_reload',
+    description: 'Reload the current page.',
+    parameters: {},
+    execute: async () => {
+      const result = await cdpReload()
+      return { success: result.success, content: result.success ? 'Page reloaded' : undefined, error: result.error }
+    }
+  }
 };
 
 export const getTool = (name: string): ToolDefinition | undefined => TOOL_REGISTRY[name];
@@ -470,11 +569,11 @@ export const executeTool = async (name: string, params: Record<string, unknown>)
 
 export const getToolsForAgent = (agentId: AgentId): string[] => {
   const agentTools: Record<AgentId, string[]> = {
-    coordinator: ['web_search', 'browse_url', 'system_info'],
-    researcher: ['web_search', 'browse_url'],
+    coordinator: ['web_search', 'browse_url', 'system_info', 'cdp_navigate', 'cdp_search', 'cdp_screenshot', 'cdp_get_page_content'],
+    researcher: ['web_search', 'browse_url', 'cdp_navigate', 'cdp_search', 'cdp_screenshot', 'cdp_get_page_content'],
     coder: ['read_file', 'write_file', 'execute_code', 'calculate'],
-    browser: ['browse_url', 'web_search'],
-    'fact-checker': ['web_search', 'browse_url'],
+    browser: ['cdp_navigate', 'cdp_search', 'cdp_screenshot', 'cdp_get_page_content', 'cdp_new_tab', 'cdp_close_tab', 'cdp_get_tabs', 'cdp_go_back', 'cdp_go_forward', 'cdp_reload'],
+    'fact-checker': ['web_search', 'browse_url', 'cdp_navigate', 'cdp_search', 'cdp_get_page_content'],
     summarizer: [],
   };
   return agentTools[agentId] || [];

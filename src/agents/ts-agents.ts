@@ -291,23 +291,77 @@ export class TSBrowserAgentExecutor extends TSAgentExecutor {
 
   async execute(task: Task): Promise<TaskResult> {
     const startTime = Date.now();
+    const description = task.description.toLowerCase();
 
     try {
+      const isSearch = description.includes('search') || 
+                       description.includes('find') || 
+                       description.includes('look up') ||
+                       description.includes('research');
+
       const url = this.extractUrl(task.description);
       let content: string;
       let pageTitle = '';
+      let visitedUrl = url || '';
       let citations: Citation[] = [];
 
       if (url) {
-        const browseTool = this.tools.find(t => t.includes('browse') || t.includes('url'));
-        if (browseTool) {
-          const result = await executeTool(browseTool, { url, maxLength: 3000 });
-          content = result.content || '';
-          const data = result.data as { title?: string } | undefined;
+        const navigateTool = this.tools.find(t => t.includes('cdp_navigate') || t.includes('navigate'));
+        if (navigateTool) {
+          const result = await executeTool(navigateTool, { url });
+          content = result.content || `Navigated to ${url}`;
+          const data = result.data as { title?: string; text?: string } | undefined;
           pageTitle = data?.title || '';
-          citations = result.citations || [];
+          
+          const contentTool = this.tools.find(t => t.includes('cdp_get_page_content') || t.includes('getPageContent'));
+          if (contentTool) {
+            const contentResult = await executeTool(contentTool, {});
+            content = (contentResult.data as { text?: string })?.text || content;
+            const contentData = contentResult.data as { url?: string; title?: string } | undefined;
+            if (contentData?.url) visitedUrl = contentData.url;
+            if (contentData?.title) pageTitle = contentData.title;
+          }
+          
+          citations = [{
+            url: visitedUrl,
+            title: pageTitle || visitedUrl,
+            snippet: content.substring(0, 200),
+            timestamp: Date.now()
+          }];
         } else {
           content = `Would navigate to: ${url}`;
+        }
+      } else if (isSearch) {
+        const query = task.description
+          .replace(/search\s*(for|of|about)?/gi, '')
+          .replace(/find\s*(for|of|about)?/gi, '')
+          .replace(/look\s*up/gi, '')
+          .trim();
+        
+        const searchTool = this.tools.find(t => t.includes('cdp_search') || t.includes('search'));
+        if (searchTool) {
+          const result = await executeTool(searchTool, { query });
+          content = result.content || `Searched for "${query}"`;
+          
+          const contentTool = this.tools.find(t => t.includes('cdp_get_page_content') || t.includes('getPageContent'));
+          if (contentTool) {
+            const contentResult = await executeTool(contentTool, {});
+            const pageContent = (contentResult.data as { text?: string })?.text;
+            if (pageContent) {
+              content = pageContent.substring(0, 3000);
+              const pageData = contentResult.data as { url?: string; title?: string } | undefined;
+              if (pageData?.url) visitedUrl = pageData.url;
+              if (pageData?.title) pageTitle = pageData.title;
+              citations = [{
+                url: visitedUrl,
+                title: pageTitle || `Search: ${query}`,
+                snippet: pageContent.substring(0, 200),
+                timestamp: Date.now()
+              }];
+            }
+          }
+        } else {
+          content = `Would search for: ${query}`;
         }
       } else {
         const messages = this.buildMessages(task);
@@ -319,9 +373,9 @@ export class TSBrowserAgentExecutor extends TSAgentExecutor {
         taskId: task.id,
         agentId: this.agentId,
         success: true,
-        data: { url, title: pageTitle, content },
-        confidence: url ? 0.85 : 0.6,
-        reasoning: url ? `Navigated to ${url}` : 'No URL found, provided guidance',
+        data: { url: visitedUrl, title: pageTitle, content },
+        confidence: url || isSearch ? 0.85 : 0.6,
+        reasoning: url ? `Navigated to ${url}` : isSearch ? `Searched and retrieved results` : 'No URL found, provided guidance',
         citations,
         timestamp: Date.now(),
         executionTime: Date.now() - startTime

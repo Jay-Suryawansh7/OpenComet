@@ -13,7 +13,6 @@ import {
   TooltipProvider,
 } from '@/components/ui/tooltip'
 import {
-  useSettingsStore,
   useUIStore,
   useChatStore,
   type SidebarSection,
@@ -53,8 +52,7 @@ function timeAgo(timestamp: number): string {
 }
 
 export function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar } = useSettingsStore()
-  const { activeSection, setActiveSection } = useUIStore()
+  const { sidebarVisible, toggleSidebar, activeSection, setActiveSection } = useUIStore()
   const { clearMessages, loadConversation, currentConversationId } = useChatStore()
   const [hovering, setHovering] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -111,7 +109,7 @@ export function Sidebar() {
     setBookmarks(updated)
   }, [bookmarks])
 
-  const collapsed = sidebarCollapsed
+  const collapsed = !sidebarVisible
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -256,7 +254,7 @@ export function Sidebar() {
         {!collapsed && (
           <div className="px-2 pb-2">
             <Separator className="mb-2" />
-            <button className="flex w-full items-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-[11px] text-white/40 hover:bg-white/[0.05] transition-colors">
+            <button onClick={() => alert('Upgrade feature coming soon!')} className="flex w-full items-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-[11px] text-white/40 hover:bg-white/[0.05] transition-colors">
               <Zap size={11} className="text-white/30" />
               <span>Upgrade plan</span>
             </button>

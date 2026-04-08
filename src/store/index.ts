@@ -325,12 +325,16 @@ export type SidebarSection = 'search' | 'computer' | 'history' | 'discover' | 's
 
 export interface UIState {
   activeSection: SidebarSection;
+  sidebarVisible: boolean;
   setActiveSection: (section: SidebarSection) => void;
+  toggleSidebar: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeSection: 'search',
-  setActiveSection: (section) => set({ activeSection: section })
+  sidebarVisible: true,
+  setActiveSection: (section) => set({ activeSection: section }),
+  toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible }))
 }));
 
 export interface AgentMonitorState {
