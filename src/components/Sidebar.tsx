@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Search, Monitor, Plus, Clock, Compass, LayoutGrid,
   ChevronLeft, ChevronRight, TrendingUp, Heart, MoreHorizontal,
-  Zap, User,
+  Zap, User, Star, Trash2,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -12,10 +12,15 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useSettingsStore, useUIStore, useChatStore, type SidebarSection } from '@/store'
+import {
+  useSettingsStore,
+  useUIStore,
+  useChatStore,
+  type SidebarSection,
+  type Conversation,
+} from '@/store'
+import { conversationStorage, settingsStorage } from '@/db/storage'
 import { cn } from '@/lib/utils'
-
-/* ── Sidebar navigation structure matching reference ─────── */
 
 const TOP_NAV = [
   { id: 'search' as SidebarSection, label: 'Search', icon: Search },
@@ -30,29 +35,81 @@ const MAIN_NAV = [
   { id: 'settings' as SidebarSection, label: 'Health', icon: Heart },
 ]
 
-const BOOKMARKS = [
-  'do one thing list down all..',
-]
+interface Bookmark {
+  id: string
+  title: string
+  query: string
+}
 
-const HISTORY_ITEMS = [
-  'deepagents',
-  'meta scaler',
-  'how i can publish a app t..',
-  'ryanstephan/ll-agents g..',
-  'rayan stephan github',
-  'npm',
-  'agent os',
-  'lil agents',
-  'trim-safe npm',
-  'koolur npm',
-  'koolur npm',
-]
+function timeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  return `${days}d ago`
+}
 
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useSettingsStore()
   const { activeSection, setActiveSection } = useUIStore()
-  const { clearMessages } = useChatStore()
+  const { clearMessages, loadConversation, currentConversationId } = useChatStore()
   const [hovering, setHovering] = useState(false)
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const loadData = useCallback(async () => {
+    try {
+      const [convs, savedBookmarks] = await Promise.all([
+        conversationStorage.getAll(),
+        settingsStorage.get('bookmarks') as Promise<Bookmark[] | undefined>,
+      ])
+      setConversations(convs)
+      setBookmarks(savedBookmarks || [])
+    } catch (err) {
+      console.error('Failed to load sidebar data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const handleNewThread = useCallback(async () => {
+    clearMessages()
+    fetch('http://localhost:8765/clear', { method: 'POST' }).catch(() => {})
+    const newConv = await conversationStorage.create('New Conversation')
+    await loadConversation(newConv.id)
+    await loadData()
+  }, [clearMessages, loadConversation, loadData])
+
+  const handleConversationClick = useCallback(async (conv: Conversation) => {
+    if (conv.id === currentConversationId) return
+    await loadConversation(conv.id)
+  }, [currentConversationId, loadConversation])
+
+  const handleDeleteConversation = useCallback(async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation()
+    await conversationStorage.delete(convId)
+    await loadData()
+    if (convId === currentConversationId) {
+      const remaining = await conversationStorage.getAll()
+      if (remaining.length > 0) {
+        await loadConversation(remaining[0].id)
+      }
+    }
+  }, [currentConversationId, loadConversation, loadData])
+
+  const handleRemoveBookmark = useCallback(async (bookmarkId: string) => {
+    const updated = bookmarks.filter(b => b.id !== bookmarkId)
+    await settingsStorage.set('bookmarks', updated)
+    setBookmarks(updated)
+  }, [bookmarks])
 
   const collapsed = sidebarCollapsed
 
@@ -66,7 +123,6 @@ export function Sidebar() {
           collapsed ? 'w-[52px]' : 'w-[220px]'
         )}
       >
-        {/* Collapse toggle */}
         <button
           onClick={toggleSidebar}
           className={cn(
@@ -78,7 +134,6 @@ export function Sidebar() {
           {collapsed ? <ChevronRight size={10} /> : <ChevronLeft size={10} />}
         </button>
 
-        {/* Top nav — Search, Computer */}
         <nav className="space-y-[1px] px-1.5 pt-2">
           {TOP_NAV.map((item) => (
             <SidebarItem
@@ -94,20 +149,15 @@ export function Sidebar() {
 
         <Separator className="mx-2 my-1.5" />
 
-        {/* New thread */}
         <div className="px-1.5">
           <SidebarItem
             collapsed={collapsed}
             icon={Plus}
             label="New thread"
-            onClick={() => {
-              clearMessages()
-              fetch('http://localhost:8765/clear', { method: 'POST' }).catch(() => {})
-            }}
+            onClick={handleNewThread}
           />
         </div>
 
-        {/* Main nav — History, Discover, Spaces, Finance, Health */}
         <nav className="space-y-[1px] px-1.5 mt-0.5">
           {MAIN_NAV.map((item, i) => (
             <SidebarItem
@@ -115,10 +165,10 @@ export function Sidebar() {
               collapsed={collapsed}
               icon={item.icon}
               label={item.label}
-              onClick={() => {}}
+              active={activeSection === item.id}
+              onClick={() => setActiveSection(item.id)}
             />
           ))}
-          {/* More button */}
           <SidebarItem
             collapsed={collapsed}
             icon={MoreHorizontal}
@@ -127,39 +177,82 @@ export function Sidebar() {
           />
         </nav>
 
-        {/* Scrollable middle — bookmarks & history */}
         {!collapsed && (
           <ScrollArea className="flex-1 mt-1">
-            {/* Bookmarks */}
-            <SectionLabel text="Bookmarks" />
-            <div className="px-1.5">
-              {BOOKMARKS.map((b) => (
-                <button
-                  key={b}
-                  className="flex w-full items-center rounded px-2 py-[3px] text-[11.5px] text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/55 truncate leading-snug"
-                >
-                  <span className="truncate">{b}</span>
-                </button>
-              ))}
-            </div>
+            {bookmarks.length > 0 && (
+              <>
+                <SectionLabel text="Bookmarks" />
+                <div className="px-1.5">
+                  {bookmarks.map((b) => (
+                    <div
+                      key={b.id}
+                      className="group/bookmark flex w-full items-center gap-1 rounded px-2 py-[3px] text-[11.5px] text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/55 truncate leading-snug"
+                    >
+                      <Star size={10} className="shrink-0 text-cyan-400/50" />
+                      <span
+                        className="flex-1 truncate cursor-pointer"
+                        onClick={() => handleConversationClick({
+                          id: b.id,
+                          title: b.query,
+                          createdAt: Date.now(),
+                          updatedAt: Date.now(),
+                        })}
+                      >
+                        {b.title}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemoveBookmark(b.id) }}
+                        className="opacity-0 group-hover/bookmark:opacity-100 transition-opacity shrink-0 p-0.5 hover:text-red-400"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
 
             <SectionLabel text="History" />
             <div className="px-1.5 pb-3">
-              {HISTORY_ITEMS.map((h, i) => (
-                <button
-                  key={h + i}
-                  className="flex w-full items-center rounded px-2 py-[3px] text-[11.5px] text-white/30 transition-colors hover:bg-white/[0.04] hover:text-white/50 truncate leading-snug"
-                >
-                  <span className="truncate">{h}</span>
-                </button>
-              ))}
+              {loading ? (
+                <div className="px-2 py-[3px] text-[11.5px] text-white/20">Loading...</div>
+              ) : conversations.length === 0 ? (
+                <div className="px-2 py-[3px] text-[11.5px] text-white/20">No conversations yet</div>
+              ) : (
+                conversations.map((conv) => {
+                  const isActive = conv.id === currentConversationId
+                  return (
+                    <div
+                      key={conv.id}
+                      onClick={() => handleConversationClick(conv)}
+                      className={cn(
+                        'group/conv flex w-full items-center gap-1 rounded px-2 py-[3px] text-[11.5px] text-white/30 transition-colors truncate leading-snug cursor-pointer',
+                        isActive
+                          ? 'bg-white/[0.06] text-white/60'
+                          : 'hover:bg-white/[0.04] hover:text-white/50'
+                      )}
+                    >
+                      <Clock size={10} className="shrink-0" />
+                      <span className="flex-1 truncate">{conv.title || 'New conversation'}</span>
+                      <span className="shrink-0 text-[10px] text-white/15">
+                        {timeAgo(conv.updatedAt)}
+                      </span>
+                      <button
+                        onClick={(e) => handleDeleteConversation(e, conv.id)}
+                        className="opacity-0 group-hover/conv:opacity-100 transition-opacity shrink-0 p-0.5 hover:text-red-400"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </ScrollArea>
         )}
 
         {collapsed && <div className="flex-1" />}
 
-        {/* Bottom — Upgrade + User */}
         {!collapsed && (
           <div className="px-2 pb-2">
             <Separator className="mb-2" />
@@ -183,7 +276,6 @@ export function Sidebar() {
   )
 }
 
-/* ── Sidebar nav item ─────────────────────────────────────── */
 function SidebarItem({
   collapsed, icon: Icon, label, active, onClick,
 }: {
@@ -228,7 +320,6 @@ function SidebarItem({
   return inner
 }
 
-/* ── Section label ────────────────────────────────────────── */
 function SectionLabel({ text }: { text: string }) {
   return (
     <div className="px-3 pt-3 pb-0.5">

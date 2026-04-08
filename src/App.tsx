@@ -1,12 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { ChatInput } from '@/components/ChatInput'
 import { SuggestionCards } from '@/components/SuggestionCards'
 import { ProviderSettings } from '@/components/ProviderSettings'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useChatStore, useUIStore, useAgentMonitorStore, useSettingsStore } from '@/store'
 import { useAgent } from '@/hooks/useAgent'
 import { cn } from '@/lib/utils'
-import { Sparkles, Settings2, Zap, Activity } from 'lucide-react'
+import { Sparkles, Settings2, Zap, Activity, Clock, Compass, LayoutGrid, Trash2 } from 'lucide-react'
 
 function App() {
   const { messages, isLoading } = useChatStore()
@@ -46,9 +47,18 @@ function App() {
         <main className="relative flex flex-1 flex-col overflow-hidden">
           {activeSection === 'settings' ? (
             <ProviderSettings />
+          ) : activeSection === 'history' ? (
+            <HistoryPanel onSelect={(id) => {
+              const { loadConversation } = useChatStore.getState()
+              loadConversation(id)
+              useUIStore.getState().setActiveSection('search')
+            }} />
+          ) : activeSection === 'discover' ? (
+            <DiscoverPanel />
+          ) : activeSection === 'spaces' ? (
+            <SpacesPanel />
           ) : (
             <>
-              {/* Sub-bar: shield badge */}
               <ShieldBar />
 
               {showingChat ? (
@@ -301,6 +311,132 @@ function ChatView({
           <div className="max-w-[640px] mx-auto mt-2 text-[12px] text-red-400/60">{error}</div>
         )}
       </div>
+    </div>
+  )
+}
+
+/* ── Section Panels ──────────────────────────────────────── */
+function HistoryPanel({ onSelect }: { onSelect: (id: string) => void }) {
+  const { loadConversations, deleteConversation, currentConversationId } = useChatStore()
+  const { setActiveSection } = useUIStore()
+  const [conversations, setConversations] = useState<Array<{ id: string; title: string; createdAt: number; updatedAt: number }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadConversations().then(setConversations).finally(() => setLoading(false))
+  }, [loadConversations])
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <Clock size={16} className="text-cyan-400" />
+          <h2 className="text-sm font-medium text-white/80">History</h2>
+        </div>
+        <button
+          onClick={() => setActiveSection('search')}
+          className="text-[12px] text-white/30 hover:text-white/60 transition-colors"
+        >
+          Back to chat
+        </button>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="px-4 py-4 space-y-2">
+          {loading ? (
+            <div className="text-[13px] text-white/30 px-2 py-4 text-center">Loading...</div>
+          ) : conversations.length === 0 ? (
+            <div className="text-[13px] text-white/30 px-2 py-4 text-center">No conversations yet</div>
+          ) : conversations.map((conv) => (
+            <div
+              key={conv.id}
+              onClick={() => { onSelect(conv.id); setActiveSection('search') }}
+              className={cn(
+                'flex items-center justify-between rounded-lg px-3 py-2.5 cursor-pointer transition-colors group',
+                conv.id === currentConversationId
+                  ? 'bg-cyan-500/10 border border-cyan-500/15'
+                  : 'hover:bg-white/[0.04] border border-transparent'
+              )}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] text-white/70 truncate">{conv.title || 'New conversation'}</div>
+                <div className="text-[11px] text-white/25 mt-0.5">
+                  {new Date(conv.updatedAt).toLocaleDateString()}
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id).then(loadConversations).then(setConversations) }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white/[0.06] rounded"
+              >
+                <Trash2 size={13} className="text-white/30 hover:text-red-400" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+function DiscoverPanel() {
+  const { setActiveSection } = useUIStore()
+  const trending = [
+    { topic: 'AI Agents', desc: 'Autonomous agents that complete multi-step tasks', icon: '🤖' },
+    { topic: 'RAG Systems', desc: 'Retrieval-augmented generation for accurate answers', icon: '📚' },
+    { topic: 'Swarm Intelligence', desc: 'Multiple agents collaborating on complex tasks', icon: '🐝' },
+    { topic: 'Code Generation', desc: 'AI-powered code completion and refactoring', icon: '💻' },
+    { topic: 'Multimodal AI', desc: 'Understanding images, audio, and video', icon: '👁️' },
+  ]
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <Compass size={16} className="text-cyan-400" />
+          <h2 className="text-sm font-medium text-white/80">Discover</h2>
+        </div>
+        <button onClick={() => setActiveSection('search')} className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+          Back to chat
+        </button>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="px-6 py-4 space-y-3">
+          <p className="text-[12px] text-white/30 mb-4">Explore trending agent capabilities</p>
+          {trending.map((t) => (
+            <div key={t.topic} className="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors cursor-pointer">
+              <span className="text-2xl">{t.icon}</span>
+              <div>
+                <div className="text-[14px] font-medium text-white/80">{t.topic}</div>
+                <div className="text-[12px] text-white/35 mt-0.5">{t.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+function SpacesPanel() {
+  const { setActiveSection } = useUIStore()
+  
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <LayoutGrid size={16} className="text-cyan-400" />
+          <h2 className="text-sm font-medium text-white/80">Spaces</h2>
+        </div>
+        <button onClick={() => setActiveSection('search')} className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+          Back to chat
+        </button>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="px-6 py-4">
+          <p className="text-[12px] text-white/30 mb-4">Your agent workspaces</p>
+          <div className="text-[13px] text-white/30 py-8 text-center">
+            No spaces yet — start a conversation to create one
+          </div>
+        </div>
+      </ScrollArea>
     </div>
   )
 }

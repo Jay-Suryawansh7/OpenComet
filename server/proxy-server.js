@@ -1,8 +1,3 @@
-/**
- * OpenComet Proxy Server
- * Lightweight Express server for LLM API proxying (handles CORS)
- */
-
 import express from 'express';
 
 const app = express();
@@ -21,13 +16,20 @@ app.use((req, res, next) => {
   next();
 });
 
+const conversationHistory: Array<{ role: string; content: string }> = [];
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'opencomet-proxy', timestamp: Date.now() });
 });
 
+app.post('/clear', (req, res) => {
+  conversationHistory.length = 0;
+  res.json({ success: true, message: 'Conversation history cleared' });
+});
+
 app.post('/api/proxy/chat', async (req, res) => {
   try {
-    const { baseUrl, apiKey, model, messages, temperature = 0.7, maxTokens = 4096 } = req.body;
+    const { baseUrl, apiKey, model, messages, temperature = 0.7, maxTokens = 4096, keepHistory = false } = req.body;
 
     if (!baseUrl || !messages) {
       return res.status(400).json({ error: 'Missing baseUrl or messages' });
@@ -59,6 +61,13 @@ app.post('/api/proxy/chat', async (req, res) => {
       };
     }
 
+    if (keepHistory && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg.role === 'user') {
+        conversationHistory.push({ role: 'user', content: lastMsg.content });
+      }
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -74,6 +83,14 @@ app.post('/api/proxy/chat', async (req, res) => {
     }
 
     const data = await response.json();
+
+    if (keepHistory && data.choices?.[0]?.message?.content) {
+      conversationHistory.push({
+        role: 'assistant',
+        content: data.choices[0].message.content,
+      });
+    }
+
     res.json(data);
   } catch (error) {
     console.error('Proxy error:', error);
@@ -85,28 +102,55 @@ app.post('/api/tools/web-search', async (req, res) => {
   try {
     const { query, numResults = 5 } = req.body;
 
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${numResults}`;
-    
-    const response = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-    });
+    const response = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${numResults}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X-Subscription-Token': process.env.BRAVE_API_KEY || '',
+        },
+      }
+    );
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'Search failed' });
+    if (response.ok) {
+      const data = await response.json();
+      const results = (data.web?.results || []).slice(0, numResults).map((r: { url?: string; title?: string; description?: string }) => ({
+        title: r.title || 'No title',
+        url: r.url || '',
+        snippet: r.description || '',
+      }));
+
+      res.json({
+        success: true,
+        query,
+        results,
+        timestamp: Date.now(),
+      });
+    } else {
+      const fallbackResponse = await fetch(
+        `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${numResults}`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        }
+      );
+
+      if (!fallbackResponse.ok) {
+        return res.status(fallbackResponse.status).json({ error: 'Search failed' });
+      }
+
+      const html = await fallbackResponse.text();
+      const results = parseSearchResults(html);
+
+      res.json({
+        success: true,
+        query,
+        results,
+        timestamp: Date.now(),
+      });
     }
-
-    const html = await response.text();
-    const results = parseSearchResults(html);
-
-    res.json({
-      success: true,
-      query,
-      results,
-      timestamp: Date.now(),
-    });
   } catch (error) {
     console.error('Web search error:', error);
     res.status(500).json({ error: 'Web search failed' });
@@ -128,7 +172,19 @@ app.post('/api/tools/browse', async (req, res) => {
       return res.status(response.status).json({ error: 'Failed to fetch URL' });
     }
 
+    const contentType = response.headers.get('content-type') || '';
     const html = await response.text();
+
+    if (contentType.includes('application/json') || contentType.includes('application/xml')) {
+      return res.json({
+        success: true,
+        url,
+        title: url,
+        content: html.substring(0, maxLength),
+        timestamp: Date.now(),
+      });
+    }
+
     const title = extractTitle(html);
     const content = extractContent(html);
     const truncated = content.length > maxLength 
@@ -153,9 +209,9 @@ app.post('/api/tools/execute-code', async (req, res) => {
     const { code, language = 'javascript' } = req.body;
 
     if (language === 'javascript' || language === 'js') {
-      const logs = [];
+      const logs: string[] = [];
       const originalLog = console.log;
-      console.log = (...args) => {
+      console.log = (...args: unknown[]) => {
         logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
       };
 
@@ -199,41 +255,47 @@ app.get('/api/providers', (req, res) => {
   res.json({ providers });
 });
 
-function parseSearchResults(html) {
-  const results = [];
-  const titles = html.match(/<a href="(https?:\/\/[^"]+)"[^>]*>([^<]+)<\/a>/g) || [];
-  
-  for (const match of titles.slice(0, 10)) {
-    const urlMatch = match.match(/href="(https?:\/\/[^"]+)"/);
-    const titleMatch = match.match(/>([^<]+)<\/a>/);
-    
-    if (urlMatch && titleMatch) {
-      const url = urlMatch[1];
-      const title = titleMatch[1];
-      
-      if (url.includes('google') || url.includes('aclk')) continue;
-      
-      results.push({
-        title,
-        url,
-        snippet: '',
-      });
+function parseSearchResults(html: string) {
+  const results: Array<{ title: string; url: string; snippet: string }> = [];
+
+  const titleRegex = /<a href="(https?:\/\/[^"]+)"[^>]*class="[^"]*BNeawe[^"]*"[^>]*>([^<]+)<\/a>/g;
+  const snippetRegex = /<span class="[^"]*aCOpRe[^"]*">([^<]+)<\/span>/g;
+
+  let match;
+  while ((match = titleRegex.exec(html)) !== null && results.length < 5) {
+    const url = match[1];
+    const title = match[2].replace(/<[^>]+>/g, '').trim();
+    if (!url.includes('google.com/search') && !url.includes('aclk')) {
+      results.push({ title, url, snippet: '' });
     }
   }
-  
-  return results.slice(0, 5);
+
+  const snippetMatches = [...html.matchAll(snippetRegex)];
+  for (let i = 0; i < Math.min(results.length, snippetMatches.length); i++) {
+    results[i].snippet = snippetMatches[i][1]
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim();
+  }
+
+  return results;
 }
 
-function extractTitle(html) {
+function extractTitle(html: string) {
   const match = html.match(/<title>([^<]+)<\/title>/i);
-  return match ? match[1] : 'Untitled';
+  return match ? match[1].trim() : 'Untitled';
 }
 
-function extractContent(html) {
+function extractContent(html: string) {
   const withoutScripts = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   const withoutStyles = withoutScripts.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-  const withoutTags = withoutStyles.replace(/<[^>]+>/g, ' ');
-  const cleaned = withoutTags.replace(/\s+/g, ' ').trim();
+  const withoutNav = withoutStyles.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+  const withoutHeader = withoutNav.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+  const withoutFooter = withoutHeader.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+  const withoutTags = withoutFooter.replace(/<[^>]+>/g, ' ');
+  const cleaned = withoutTags.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
   return cleaned;
 }
 
@@ -241,8 +303,9 @@ app.listen(PORT, () => {
   console.log(`OpenComet Proxy Server running on http://localhost:${PORT}`);
   console.log('Endpoints:');
   console.log('  GET  /health - Health check');
+  console.log('  POST /clear - Clear conversation history');
   console.log('  POST /api/proxy/chat - Proxy LLM requests');
-  console.log('  POST /api/tools/web-search - Web search');
+  console.log('  POST /api/tools/web-search - Web search (Brave API + Google fallback)');
   console.log('  POST /api/tools/browse - Browse URL');
   console.log('  POST /api/tools/execute-code - Execute JS code');
   console.log('  GET  /api/providers - List providers');
