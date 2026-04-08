@@ -321,7 +321,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   }
 }));
 
-export type SidebarSection = 'search' | 'computer' | 'history' | 'discover' | 'spaces' | 'settings';
+export type SidebarSection = 'search' | 'computer' | 'history' | 'discover' | 'spaces' | 'finance' | 'health' | 'settings';
 
 export interface UIState {
   activeSection: SidebarSection;

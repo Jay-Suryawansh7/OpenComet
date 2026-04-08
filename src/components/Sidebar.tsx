@@ -31,8 +31,8 @@ const MAIN_NAV = [
   { id: 'history' as SidebarSection, label: 'History', icon: Clock },
   { id: 'discover' as SidebarSection, label: 'Discover', icon: Compass },
   { id: 'spaces' as SidebarSection, label: 'Spaces', icon: LayoutGrid },
-  { id: 'settings' as SidebarSection, label: 'Finance', icon: TrendingUp },
-  { id: 'settings' as SidebarSection, label: 'Health', icon: Heart },
+  { id: 'finance' as SidebarSection, label: 'Finance', icon: TrendingUp },
+  { id: 'health' as SidebarSection, label: 'Health', icon: Heart },
 ]
 
 interface Bookmark {
