@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, BrowserView, Menu, MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, BrowserView, Menu, MenuItemConstructorOptions, Event } from 'electron'
 import { join } from 'path'
 import log from 'electron-log'
 import { spawn, ChildProcess } from 'child_process'
@@ -126,6 +126,36 @@ class BrowserViewManager {
 
     view.webContents.on('page-title-updated', () => {
       this.notify()
+    })
+
+    // ── Intercept new windows and links ──────────────────────────
+    // Open in same tab instead of new window
+    ;(view.webContents as any).on('new-window', (event: Event, url: string, _frameName: string, disposition: string) => {
+      event.preventDefault()
+      log.info(`[${tabId}] Intercepted new-window: ${url} (disposition: ${disposition})`)
+      if (disposition === 'background-tab' || disposition === 'new-window') {
+        // Open in new tab
+        const newTabId = this.createTab()
+        this.navigate(newTabId, url)
+        this.setActiveTab(newTabId)
+      } else {
+        // Open in same tab
+        this.navigate(tabId, url)
+      }
+    })
+
+    // Also intercept will-navigate for in-page link clicks
+    ;(view.webContents as any).on('will-navigate', (_event: Event, url: string) => {
+      log.info(`[${tabId}] will-navigate: ${url}`)
+      // Allow all navigations - this is just a notification
+    })
+
+    // Intercept redirect chains
+    ;(view.webContents as any).on('did-navigate-in-page', (_event: Event, url: string, isMainFrame: boolean) => {
+      if (isMainFrame) {
+        log.info(`[${tabId}] In-page navigation: ${url}`)
+        this.notify()
+      }
     })
 
     this.views.set(tabId, view)
