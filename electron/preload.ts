@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     searchAndScrape: (query: string) => ipcRenderer.invoke('browser:searchAndScrape', query),
     setVisibility: (visible: boolean) => ipcRenderer.invoke('browser:setVisibility', visible),
     setBounds: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('browser:setBounds', bounds),
+    clearBounds: () => ipcRenderer.invoke('browser:clearBounds'),
     openDevTools: () => ipcRenderer.invoke('browser:openDevTools'),
     closeDevTools: () => ipcRenderer.invoke('browser:closeDevTools'),
     setZoomLevel: (level: number) => ipcRenderer.invoke('browser:setZoomLevel', level),

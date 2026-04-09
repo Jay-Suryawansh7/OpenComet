@@ -157,6 +157,14 @@ function App() {
     if (window.electronAPI?.browser?.setVisibility) {
       window.electronAPI.browser.setVisibility(isBrowserVisible)
     }
+    // Clear custom bounds when browser is hidden, use default positioning
+    if (!isBrowserVisible) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const api = window.electronAPI?.browser as any
+      if (api?.clearBounds) {
+        api.clearBounds()
+      }
+    }
   }, [isBrowserVisible])
 
   // Perfectly track the physical layout of the main area so the BrowserView 
@@ -164,25 +172,44 @@ function App() {
   useEffect(() => {
     if (!mainRef.current || !isBrowserVisible) return
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const rect = entry.target.getBoundingClientRect()
-        // We sync the BrowserView to this exact DOM layout box, minus 8px padding
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const api = window.electronAPI?.browser as any
-        if (api?.setBounds) {
-          api.setBounds({
-            x: Math.round(rect.left + 8),
-            y: Math.round(rect.top + 8),
-            width: Math.round(rect.width - 16),
-            height: Math.round(rect.height - 16)
-          })
-        }
+    const updateBounds = () => {
+      if (!mainRef.current) return
+      
+      // Get the position relative to the window
+      const rect = mainRef.current.getBoundingClientRect()
+      
+      // Calculate bounds relative to window content area
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const api = window.electronAPI?.browser as any
+      if (api?.setBounds) {
+        api.setBounds({
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height)
+        })
       }
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateBounds()
     })
 
+    // Listen for window resize to update bounds
+    const handleResize = () => {
+      updateBounds()
+    }
+    window.addEventListener('resize', handleResize)
+
+    // Small delay to ensure DOM has updated after visibility change
+    const timeoutId = setTimeout(updateBounds, 100)
+    
     observer.observe(mainRef.current)
-    return () => observer.disconnect()
+    return () => {
+      clearTimeout(timeoutId)
+      observer.disconnect()
+      window.removeEventListener('resize', handleResize)
+    }
   }, [isBrowserVisible])
 
   return (

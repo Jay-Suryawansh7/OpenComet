@@ -295,7 +295,14 @@ class BrowserViewManager {
     setTimeout(() => {
       if (visible) {
         this.window.addBrowserView(view)
-        this.positionView(view)
+        // Always reposition when showing to ensure correct bounds
+        // If customBounds is set (from ResizeObserver), use it; otherwise use default positioning
+        if (this.customBounds) {
+          view.setBounds(this.customBounds)
+          view.setAutoResize({ width: false, height: false, horizontal: false, vertical: false })
+        } else {
+          this.positionView(view)
+        }
         log.info(`setVisibility: added and positioned view`)
       } else {
         this.window.removeBrowserView(view)
@@ -340,6 +347,14 @@ class BrowserViewManager {
     if (view && this.isVisible) {
       view.setBounds(this.customBounds)
       view.setAutoResize({ width: false, height: false, horizontal: false, vertical: false })
+    }
+  }
+
+  clearBounds() {
+    this.customBounds = null
+    const view = this.activeTabId ? this.views.get(this.activeTabId) : null
+    if (view && this.isVisible) {
+      this.positionView(view)
     }
   }
 
@@ -638,6 +653,14 @@ function setupIpcHandlers() {
     log.info(`browser:setBounds called with bounds: ${JSON.stringify(bounds)}`);
     if (viewManager) {
       viewManager.setBounds(bounds)
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('browser:clearBounds', () => {
+    log.info('browser:clearBounds called - using default positioning');
+    if (viewManager) {
+      viewManager.clearBounds()
     }
     return { success: true }
   })

@@ -24,6 +24,7 @@ export interface ElectronAPI {
     searchAndScrape: (query: string) => Promise<{ links: any[]; images: any[]; videos: any[]; error?: string }>
     setVisibility: (visible: boolean) => Promise<{ success: boolean }>
     setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<{ success: boolean }>
+    clearBounds: () => Promise<void>
     openDevTools: () => Promise<void>
     closeDevTools: () => Promise<void>
     setZoomLevel: (level: number) => Promise<void>
