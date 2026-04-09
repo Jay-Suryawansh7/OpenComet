@@ -16,6 +16,7 @@ import {
   memoryStorage,
   settingsStorage 
 } from './storage';
+import { memoryService } from '../services/memory-service';
 
 export interface AgentResponse {
   conversationId: string;
@@ -25,6 +26,7 @@ export interface AgentResponse {
   consensus: ConsensusResult;
   citations: Citation[];
   executionTime: number;
+  memoryUsed?: boolean;
 }
 
 export interface AgentState {
@@ -41,6 +43,7 @@ class AgentService {
   private currentConversationId: string | null = null;
   private stateListeners: Set<AgentStateListener> = new Set();
   private currentState: AgentState = { status: 'idle', activeAgents: [] };
+  private memoryEnabled: boolean = true;
 
   private updateState(updates: Partial<AgentState>): void {
     this.currentState = { ...this.currentState, ...updates };
@@ -102,6 +105,7 @@ class AgentService {
     
     const conversationId = this.currentConversationId!;
     const startTime = Date.now();
+    let memoryUsed = false;
     
     this.updateState({ 
       status: 'thinking', 
@@ -122,7 +126,19 @@ class AgentService {
 
       this.updateState({ status: 'thinking', message: 'Running agent swarm...' });
 
-      const result = await this.coordinator.processQuery(content);
+      let enhancedContent = content;
+      
+      if (this.memoryEnabled) {
+        try {
+          const memoryContext = await memoryService.buildMemoryContext(content, conversationId);
+          enhancedContent = content + memoryService.formatMemoryContext(memoryContext);
+          memoryUsed = true;
+        } catch (error) {
+          console.warn('Failed to build memory context:', error);
+        }
+      }
+
+      const result = await this.coordinator.processQuery(enhancedContent);
 
       const responseContent = this.formatResponse(result.response, result.consensus, result.citations);
       
@@ -160,12 +176,11 @@ class AgentService {
         }
       }
 
-      await memoryStorage.create(
-        'context',
-        `User asked: ${content.substring(0, 100)}...`,
-        ['conversation', conversationId],
-        3
-      );
+      if (this.memoryEnabled) {
+        await memoryService.createFromMessage('user', content, conversationId);
+        await memoryService.createFromMessage('assistant', responseContent, conversationId);
+        await memoryService.extractAndStoreFacts(responseContent);
+      }
 
       const executionTime = Date.now() - startTime;
       
@@ -182,7 +197,8 @@ class AgentService {
         results: result.results,
         consensus: result.consensus,
         citations: result.citations,
-        executionTime
+        executionTime,
+        memoryUsed
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -267,6 +283,31 @@ class AgentService {
 
   async searchMemories(query: string) {
     return memoryStorage.search(query);
+  }
+
+  async getMemoryStats() {
+    return memoryService.getStats();
+  }
+
+  async clearAllMemories() {
+    await memoryService.clearAllMemories();
+  }
+
+  async clearBrowsingHistory() {
+    await memoryService.clearBrowsingHistory();
+  }
+
+  async forgetMemory(memoryId: string) {
+    await memoryService.forget(memoryId);
+  }
+
+  setMemoryEnabled(enabled: boolean) {
+    this.memoryEnabled = enabled;
+    memoryService.setEnabled(enabled);
+  }
+
+  isMemoryEnabled(): boolean {
+    return this.memoryEnabled;
   }
 
   async getStats() {

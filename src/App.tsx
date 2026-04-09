@@ -27,7 +27,7 @@ import {
 function App() {
   const { messages, isLoading } = useChatStore()
   const { sendMessage, error } = useAgent()
-  const { activeSection } = useUIStore()
+  const { activeSection, browserScreenshot } = useUIStore()
   const { toggle: togglePanel } = useAssistantPanelStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
@@ -177,16 +177,17 @@ function App() {
       
       // Get the position relative to the window
       const rect = mainRef.current.getBoundingClientRect()
+      const margin = 8 // Inset padding for the Site Window Border
       
       // Calculate bounds relative to window content area
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const api = window.electronAPI?.browser as any
       if (api?.setBounds) {
         api.setBounds({
-          x: Math.round(rect.left),
-          y: Math.round(rect.top),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height)
+          x: Math.round(rect.left) + margin,
+          y: Math.round(rect.top) + margin,
+          width: Math.round(rect.width) - (margin * 2),
+          height: Math.round(rect.height) - (margin * 2)
         })
       }
     }
@@ -226,9 +227,18 @@ function App() {
           <InlineAssistantPopup />
           {/* Find in Page Bar */}
           <FindBar />
+          {/* Screenshot Overlay Mask when Dropdown is open */}
+          {browserScreenshot && isBrowserVisible && (
+            <img 
+              src={browserScreenshot} 
+              alt="Browser Mask" 
+              className="absolute pointer-events-none z-0 left-[8px] top-[8px] w-[calc(100%-16px)] h-[calc(100%-16px)] object-cover rounded-[12px]" 
+            />
+          )}
+
           {/* Site Window Border that exactly frames the BrowserView (mostly hidden now) */}
           {isBrowserVisible && (
-            <div className="absolute top-[8px] bottom-[8px] left-[8px] right-[8px] rounded-[12px] pointer-events-none z-50" />
+            <div className="absolute top-[8px] bottom-[8px] left-[8px] right-[8px] rounded-[12px] pointer-events-none z-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]" />
           )}
           {/* Split View Controls */}
           <SplitViewControls />

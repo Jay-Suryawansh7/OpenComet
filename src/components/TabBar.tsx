@@ -4,13 +4,15 @@ import { useSearchStore } from '@/store/searchStore'
 import { useAssistantPanelStore } from '@/store/assistantPanelStore'
 import { useSplitViewStore } from '@/store/splitViewStore'
 import { useTabCycleStore } from '@/store/tabCycleStore'
+import { useUIStore } from '@/store'
+import { useMemoryStore } from '@/store/memoryStore'
 import { cn } from '@/lib/utils'
 import {
   X, Plus, Globe, ArrowLeft, ArrowRight, RotateCw,
   Star, Lock, PanelRight,
   Download, MessageSquare, Columns2, Search,
   ChevronDown, Users, SquareStack, Clock, Puzzle, Package, HelpCircle, Settings, ChevronRight,
-  Maximize2, Printer
+  Maximize2, Printer, Brain
 } from 'lucide-react'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger
@@ -18,6 +20,7 @@ import {
 import { TabCycler } from './TabCycler'
 import { DownloadsPanel } from './DownloadsPanel'
 import { ZoomControls } from './ZoomControls'
+import { MemoryPanel } from './MemoryPanel'
 
 export function TabBar() {
   const { tabs, activeTabId, setActiveTab, closeTab, newTab, navigate, goBack, goForward, reload, toggleFullscreen, print, agentActive, showFindBar } = useBrowserStore()
@@ -25,9 +28,12 @@ export function TabBar() {
   const { isOpen: panelOpen, toggle: togglePanel } = useAssistantPanelStore()
   const { enabled: splitEnabled, enable: enableSplit, disable: disableSplit, rightTabId, leftTabId } = useSplitViewStore()
   const { addToHistory, setPickerOpen, isPickerOpen } = useTabCycleStore()
+  const { setBrowserScreenshot, activeSection } = useUIStore()
+  const { settings, loadMemoryStats } = useMemoryStore()
   const activeTab = tabs.find(t => t.id === activeTabId)
   const [url, setUrl] = useState('')
   const [bookmarked, setBookmarked] = useState(false)
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false)
 
   const tabCyclerRef = useRef<HTMLDivElement>(null)
 
@@ -116,6 +122,40 @@ export function TabBar() {
   const handleTabCycleSelect = (tabId: string) => {
     setActiveTab(tabId)
     setPickerOpen(false)
+  }
+
+  const isAboutBlank = !activeTab?.url || activeTab.url === 'about:blank' || activeTab.url.includes('about:blank')
+
+  const handleProfileMenuOpenChange = async (open: boolean) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = window.electronAPI?.browser as any
+    if (!api) return
+
+    if (open) {
+      // Check if browser is currently supposed to be visible
+      const isBrowserVisible = activeSection === 'search' && !isAboutBlank
+      
+      if (activeTabId && isBrowserVisible) {
+        try {
+          const res = await api.screenshot(activeTabId)
+          if (res.data) {
+            setBrowserScreenshot(res.data)
+            // Wait a tick for React to render the image overlay
+            setTimeout(() => {
+              if (api.setVisibility) api.setVisibility(false)
+            }, 10)
+          }
+        } catch (e) {
+          console.error('Failed to capture screenshot', e)
+        }
+      }
+    } else {
+      if (api.setVisibility) api.setVisibility(true)
+      // Small delay to prevent flashing while BrowserView restores
+      setTimeout(() => {
+        setBrowserScreenshot(null)
+      }, 50)
+    }
   }
 
   const displayUrl = activeTab?.url && activeTab.url !== 'about:blank'
@@ -210,7 +250,7 @@ export function TabBar() {
 
         {/* Profile Dropdown (far right, in tab row) */}
         <div className="tabbar-row-right select-none ml-1 mr-2 relative z-[60]">
-          <DropdownMenu>
+          <DropdownMenu onOpenChange={handleProfileMenuOpenChange}>
             <DropdownMenuTrigger className="flex items-center gap-1.5 hover:bg-white/[0.08] transition-colors rounded-md p-1 outline-none">
               <ChevronDown size={13} className="text-white/40" />
               <div className="w-[22px] h-[22px] rounded-full bg-gradient-to-tr from-cyan-600 via-rose-500 to-violet-600 shadow-inner flex items-center justify-center overflow-hidden border border-white/10" />

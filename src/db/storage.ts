@@ -235,7 +235,7 @@ export const executionStorage = {
 // ═══════════════════════════════════════════════════════════════════
 
 export const memoryStorage = {
-  async create(type: Memory['type'], content: string, tags: string[] = [], importance: number = 5, source?: string): Promise<Memory> {
+  async create(type: Memory['type'], content: string, tags: string[] = [], importance: number = 5, relevance: number = 5, source?: string, conversationId?: string): Promise<Memory> {
     const now = Date.now();
     const memory: Memory = {
       id: `mem-${now}-${Math.random().toString(36).substr(2, 9)}`,
@@ -243,7 +243,9 @@ export const memoryStorage = {
       content,
       source,
       importance,
+      relevance,
       tags,
+      conversationId,
       createdAt: now,
       accessedAt: now,
       accessCount: 0

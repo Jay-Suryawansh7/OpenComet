@@ -326,15 +326,19 @@ export type SidebarSection = 'search' | 'computer' | 'history' | 'discover' | 's
 export interface UIState {
   activeSection: SidebarSection;
   sidebarVisible: boolean;
+  browserScreenshot: string | null;
   setActiveSection: (section: SidebarSection) => void;
   toggleSidebar: () => void;
+  setBrowserScreenshot: (screenshot: string | null) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeSection: 'search',
   sidebarVisible: true,
+  browserScreenshot: null,
   setActiveSection: (section) => set({ activeSection: section }),
-  toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible }))
+  toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
+  setBrowserScreenshot: (screenshot) => set({ browserScreenshot: screenshot })
 }));
 
 export interface AgentMonitorState {

@@ -412,12 +412,7 @@ class BrowserViewManager {
     if (!view) return { error: 'Tab not found' }
 
     try {
-      const image = await view.webContents.capturePage({
-        x: 0,
-        y: 0,
-        width: view.getBounds().width,
-        height: view.getBounds().height
-      })
+      const image = await view.webContents.capturePage()
       return { data: image.toDataURL() }
     } catch (err: any) {
       return { error: err.message }

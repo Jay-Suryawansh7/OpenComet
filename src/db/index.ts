@@ -79,14 +79,27 @@ export interface AgentExecution {
 
 export interface Memory {
   id: string;
-  type: 'fact' | 'preference' | 'context' | 'knowledge';
+  type: 'fact' | 'preference' | 'context' | 'knowledge' | 'browsing' | 'preference';
   content: string;
   source?: string;
   importance: number;
+  relevance: number;
   tags: string[];
+  conversationId?: string;
   createdAt: number;
   accessedAt: number;
   accessCount: number;
+  expiresAt?: number;
+}
+
+export interface BrowserMemory {
+  id: string;
+  type: 'site_visit' | 'search_query' | 'interaction' | 'bookmark';
+  content: string;
+  url?: string;
+  timestamp: number;
+  sessionId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Citation {
@@ -145,6 +158,7 @@ export class OpenCometDB extends Dexie {
   agents!: Table<Agent>;
   executions!: Table<AgentExecution>;
   memories!: Table<Memory>;
+  browserMemories!: Table<BrowserMemory>;
   citations!: Table<Citation>;
   providers!: Table<Provider>;
   settings!: Table<Settings>;
@@ -159,7 +173,8 @@ export class OpenCometDB extends Dexie {
       tasks: 'id, conversationId, type, status, agentId, createdAt, [conversationId+createdAt]',
       agents: 'id, type, status, lastUsedAt',
       executions: 'id, agentId, taskId, conversationId, status, startedAt, [agentId+startedAt]',
-      memories: 'id, type, importance, createdAt, accessedAt, *tags',
+      memories: 'id, type, importance, relevance, createdAt, accessedAt, *tags, conversationId',
+      browserMemories: 'id, type, timestamp, sessionId, url',
       citations: 'id, taskId, url, accessedAt',
       providers: 'id, name',
       settings: 'id, key',
