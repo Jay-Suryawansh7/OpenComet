@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useSearchStore, type SearchTab, type SearchResult, type SearchAssistantResponse } from '@/store/searchStore'
+import { useBrowserStore } from '@/store/browserStore'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import {
@@ -181,8 +182,11 @@ function AssistantTab({ response }: { response: SearchAssistantResponse }) {
             <a
               key={i}
               href={src.url}
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault()
+                useBrowserStore.getState().navigate(src.url)
+                useSearchStore.getState().clearResults()
+              }}
               className="assistant-source-chip"
             >
               <span className="assistant-source-favicon">{src.favicon}</span>
@@ -264,8 +268,11 @@ function LinksTab({ results }: { results: SearchResult[] }) {
         <a
           key={result.id}
           href={result.url}
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={(e) => {
+            e.preventDefault()
+            useBrowserStore.getState().navigate(result.url)
+            useSearchStore.getState().clearResults()
+          }}
           className="link-result-card"
         >
           <div className="link-result-main">
@@ -353,7 +360,15 @@ function ImagesTab({ results }: { results: SearchResult[] }) {
             <div className="image-lightbox-info">
               <h3>{selectedImage.title}</h3>
               <p>{selectedImage.source} · {selectedImage.resolution}</p>
-              <a href={selectedImage.url} target="_blank" rel="noopener noreferrer" className="image-lightbox-link">
+              <a 
+                href={selectedImage.url} 
+                onClick={(e) => {
+                  e.preventDefault()
+                  useBrowserStore.getState().navigate(selectedImage.url)
+                  useSearchStore.getState().clearResults()
+                }}
+                className="image-lightbox-link"
+              >
                 <ExternalLink size={12} />
                 Open original
               </a>
@@ -375,8 +390,11 @@ function VideosTab({ results }: { results: SearchResult[] }) {
           <a
             key={result.id}
             href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={(e) => {
+              e.preventDefault()
+              useBrowserStore.getState().navigate(result.url)
+              useSearchStore.getState().clearResults()
+            }}
             className="video-result-card"
           >
             <div className="video-result-thumb">
@@ -425,8 +443,11 @@ function FilesTab({ results }: { results: SearchResult[] }) {
         <a
           key={result.id}
           href={result.url}
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={(e) => {
+            e.preventDefault()
+            useBrowserStore.getState().navigate(result.url)
+            useSearchStore.getState().clearResults()
+          }}
           className="file-result-card"
         >
           <div className={cn('file-type-badge', fileTypeColors[result.fileType || ''] || 'file-type-default')}>

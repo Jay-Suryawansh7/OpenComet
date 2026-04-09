@@ -12,15 +12,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     goBack: (tabId: string) => ipcRenderer.invoke('browser:goBack', tabId),
     goForward: (tabId: string) => ipcRenderer.invoke('browser:goForward', tabId),
     reload: (tabId: string) => ipcRenderer.invoke('browser:reload', tabId),
+    stop: (tabId: string) => ipcRenderer.invoke('browser:stop', tabId),
     screenshot: (tabId: string) => ipcRenderer.invoke('browser:screenshot', tabId),
     getPageContent: (tabId: string) => ipcRenderer.invoke('browser:getPageContent', tabId),
     search: (query: string) => ipcRenderer.invoke('browser:search', query),
     searchAndScrape: (query: string) => ipcRenderer.invoke('browser:searchAndScrape', query),
     setVisibility: (visible: boolean) => ipcRenderer.invoke('browser:setVisibility', visible),
+    setBounds: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('browser:setBounds', bounds),
     openDevTools: () => ipcRenderer.invoke('browser:openDevTools'),
     closeDevTools: () => ipcRenderer.invoke('browser:closeDevTools'),
+    setZoomLevel: (level: number) => ipcRenderer.invoke('browser:setZoomLevel', level),
+    find: (query: string) => ipcRenderer.invoke('browser:find', query),
+    findNext: () => ipcRenderer.invoke('browser:findNext'),
+    findPrevious: () => ipcRenderer.invoke('browser:findPrevious'),
+    stopFind: () => ipcRenderer.invoke('browser:stopFind'),
+    toggleFullscreen: () => ipcRenderer.invoke('browser:toggleFullscreen'),
+    print: () => ipcRenderer.invoke('browser:print'),
     onTabsUpdated: (callback: (data: { tabs: any[]; activeId: string | null }) => void) => {
       ipcRenderer.on('browser:tabs-updated', (_event, data) => callback(data))
+    },
+    onInlineSelection: (callback: (data: { text: string; x: number; y: number }) => void) => {
+      ipcRenderer.on('inline-assistant:selection', (_event, data) => callback(data))
+    },
+    onDownloadUpdated: (callback: (data: any) => void) => {
+      ipcRenderer.on('browser:download-updated', (_event, data) => callback(data))
     }
   },
 
@@ -47,14 +62,25 @@ export interface ElectronAPI {
     goBack: (tabId: string) => Promise<{ success: boolean }>
     goForward: (tabId: string) => Promise<{ success: boolean }>
     reload: (tabId: string) => Promise<{ success: boolean }>
+    stop: (tabId: string) => Promise<{ success: boolean }>
     screenshot: (tabId: string) => Promise<{ data?: string; error?: string }>
     getPageContent: (tabId: string) => Promise<{ text?: string; url?: string; title?: string; error?: string }>
     search: (query: string) => Promise<{ tabId: string }>
     searchAndScrape: (query: string) => Promise<{ links: any[]; images: any[]; videos: any[]; error?: string }>
     setVisibility: (visible: boolean) => Promise<{ success: boolean }>
+    setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<{ success: boolean }>
     openDevTools: () => Promise<void>
     closeDevTools: () => Promise<void>
+    setZoomLevel: (level: number) => Promise<void>
+    find: (query: string) => Promise<{ matches: number }>
+    findNext: () => Promise<void>
+    findPrevious: () => Promise<void>
+    stopFind: () => Promise<void>
+    toggleFullscreen: () => Promise<void>
+    print: () => Promise<void>
     onTabsUpdated: (callback: (data: { tabs: any[]; activeId: string | null }) => void) => void
+    onInlineSelection: (callback: (data: { text: string; x: number; y: number }) => void) => void
+    onDownloadUpdated: (callback: (data: any) => void) => void
   }
   settings: {
     get: () => Promise<'autonomous' | 'confirmation'>

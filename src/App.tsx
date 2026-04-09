@@ -2,13 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { ChatInput } from '@/components/ChatInput'
 import { SuggestionCards } from '@/components/SuggestionCards'
-import { ProviderSettings } from '@/components/ProviderSettings'
+import { SettingsPage } from '@/components/SettingsPage'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TabBar } from '@/components/TabBar'
 import { SearchResultsView } from '@/components/SearchResultsView'
+import { AssistantPanel } from '@/components/AssistantPanel'
+import { InlineAssistantPopup } from '@/components/InlineAssistantPopup'
+import { FindBar } from '@/components/FindBar'
+import { SplitViewControls } from '@/components/SplitView'
 import { useChatStore, useUIStore, useAgentMonitorStore, useSettingsStore } from '@/store'
 import { useBrowserStore } from '@/store/browserStore'
 import { useSearchStore } from '@/store/searchStore'
+import { useAssistantPanelStore } from '@/store/assistantPanelStore'
+import { useInlineAssistantListener } from '@/hooks/useInlineAssistantListener'
 import { useAgent } from '@/hooks/useAgent'
 import { cn } from '@/lib/utils'
 import {
@@ -22,10 +28,105 @@ function App() {
   const { messages, isLoading } = useChatStore()
   const { sendMessage, error } = useAgent()
   const { activeSection } = useUIStore()
+  const { toggle: togglePanel } = useAssistantPanelStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
   const { hasResults: hasSearchResults, isSearching, performSearch } = useSearchStore()
 
-  const { initialize: initBrowser } = useBrowserStore()
+  const { initialize: initBrowser, tabs, activeTabId } = useBrowserStore()
+  
+  const activeTab = tabs.find(t => t.id === activeTabId)
+  const isAboutBlank = !activeTab?.url || activeTab.url === 'about:blank' || activeTab.url.includes('about:blank')
+
+  // Keyboard shortcuts for browser
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+      const mod = isMac ? e.metaKey : e.ctrlKey
+
+      // Cmd/Ctrl+\ to toggle assistant panel
+      if (mod && e.key === '\\') {
+        e.preventDefault()
+        togglePanel()
+      }
+
+      // Cmd+T - New tab
+      if (mod && e.key === 't') {
+        e.preventDefault()
+        useBrowserStore.getState().newTab()
+      }
+
+      // Cmd+W - Close tab
+      if (mod && e.key === 'w') {
+        e.preventDefault()
+        const { activeTabId, tabs } = useBrowserStore.getState()
+        if (activeTabId && tabs.length > 1) {
+          useBrowserStore.getState().closeTab(activeTabId)
+        }
+      }
+
+      // Cmd+Shift+] - Next tab
+      if (mod && e.shiftKey && e.key === ']') {
+        e.preventDefault()
+        const { tabs, activeTabId } = useBrowserStore.getState()
+        if (tabs.length > 1 && activeTabId) {
+          const idx = tabs.findIndex(t => t.id === activeTabId)
+          const nextIdx = (idx + 1) % tabs.length
+          useBrowserStore.getState().setActiveTab(tabs[nextIdx].id)
+        }
+      }
+
+      // Cmd+Shift+[ - Previous tab
+      if (mod && e.shiftKey && e.key === '[') {
+        e.preventDefault()
+        const { tabs, activeTabId } = useBrowserStore.getState()
+        if (tabs.length > 1 && activeTabId) {
+          const idx = tabs.findIndex(t => t.id === activeTabId)
+          const prevIdx = idx === 0 ? tabs.length - 1 : idx - 1
+          useBrowserStore.getState().setActiveTab(tabs[prevIdx].id)
+        }
+      }
+
+      // Cmd+L - Focus address bar
+      if (mod && e.key === 'l') {
+        e.preventDefault()
+        const urlInput = document.querySelector('.tabbar-url-input') as HTMLInputElement
+        if (urlInput) {
+          urlInput.focus()
+          urlInput.select()
+        }
+      }
+
+      // Cmd+P - Print
+      if (mod && e.key === 'p') {
+        e.preventDefault()
+        useBrowserStore.getState().print()
+      }
+
+      // Cmd++ - Zoom in
+      if (mod && (e.key === '+' || e.key === '=')) {
+        e.preventDefault()
+        useBrowserStore.getState().zoomIn()
+      }
+
+      // Cmd+- - Zoom out
+      if (mod && e.key === '-') {
+        e.preventDefault()
+        useBrowserStore.getState().zoomOut()
+      }
+
+      // Cmd+0 - Reset zoom
+      if (mod && e.key === '0') {
+        e.preventDefault()
+        useBrowserStore.getState().resetZoom()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [togglePanel])
+
+  // Listen for inline assistant messages from content script
+  useInlineAssistantListener()
 
   useEffect(() => {
     const init = async () => {
@@ -50,12 +151,38 @@ function App() {
   }
 
   const showingChat = messages.length > 0 || isLoading || hasSearchResults || isSearching
-  const isBrowserVisible = activeSection === 'search' && !showingChat
+  const isBrowserVisible = activeSection === 'search' && !showingChat && !isAboutBlank
 
   useEffect(() => {
     if (window.electronAPI?.browser?.setVisibility) {
       window.electronAPI.browser.setVisibility(isBrowserVisible)
     }
+  }, [isBrowserVisible])
+
+  // Perfectly track the physical layout of the main area so the BrowserView 
+  // exactly snaps inside it even when zooming or toggling sidebars!
+  useEffect(() => {
+    if (!mainRef.current || !isBrowserVisible) return
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const rect = entry.target.getBoundingClientRect()
+        // We sync the BrowserView to this exact DOM layout box, minus 8px padding
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const api = window.electronAPI?.browser as any
+        if (api?.setBounds) {
+          api.setBounds({
+            x: Math.round(rect.left + 8),
+            y: Math.round(rect.top + 8),
+            width: Math.round(rect.width - 16),
+            height: Math.round(rect.height - 16)
+          })
+        }
+      }
+    })
+
+    observer.observe(mainRef.current)
+    return () => observer.disconnect()
   }, [isBrowserVisible])
 
   return (
@@ -65,11 +192,22 @@ function App() {
 
       {/* ── Body — sidebar + content ─────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
+        {!isBrowserVisible && <Sidebar />}
 
-        <main className="relative flex flex-1 flex-col overflow-hidden">
+        <main ref={mainRef} className="relative flex flex-1 flex-col overflow-hidden">
+          {/* Inline Assistant Popup */}
+          <InlineAssistantPopup />
+          {/* Find in Page Bar */}
+          <FindBar />
+          {/* Site Window Border that exactly frames the BrowserView (mostly hidden now) */}
+          {isBrowserVisible && (
+            <div className="absolute top-[8px] bottom-[8px] left-[8px] right-[8px] rounded-[12px] pointer-events-none z-50" />
+          )}
+          {/* Split View Controls */}
+          <SplitViewControls />
+
           {activeSection === 'settings' ? (
-            <ProviderSettings />
+            <SettingsPage />
           ) : activeSection === 'history' ? (
             <HistoryPanel onSelect={(id) => {
               const { loadConversation } = useChatStore.getState()
@@ -114,6 +252,9 @@ function App() {
             </>
           )}
         </main>
+
+        {/* Assistant Panel - right side */}
+        <AssistantPanel />
       </div>
     </div>
   )
@@ -277,8 +418,12 @@ function ChatContainer({
                     <a
                       key={site.id}
                       href={site.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        useBrowserStore.getState().navigate(site.url)
+                        useUIStore.getState().setActiveSection('search')
+                        useSearchStore.getState().clearResults()
+                      }}
                       className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:bg-white/[0.04] hover:border-white/[0.1] transition-all shrink-0 min-w-0 max-w-[200px] group"
                     >
                       <Globe size={12} className="shrink-0 text-cyan-400/50" />

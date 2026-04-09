@@ -17,14 +17,25 @@ export interface ElectronAPI {
     goBack: (tabId: string) => Promise<{ success: boolean }>
     goForward: (tabId: string) => Promise<{ success: boolean }>
     reload: (tabId: string) => Promise<{ success: boolean }>
+    stop: (tabId: string) => Promise<{ success: boolean }>
     screenshot: (tabId: string) => Promise<{ data?: string; error?: string }>
     getPageContent: (tabId: string) => Promise<{ text?: string; url?: string; title?: string; error?: string }>
     search: (query: string) => Promise<{ tabId: string }>
     searchAndScrape: (query: string) => Promise<{ links: any[]; images: any[]; videos: any[]; error?: string }>
     setVisibility: (visible: boolean) => Promise<{ success: boolean }>
+    setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<{ success: boolean }>
     openDevTools: () => Promise<void>
     closeDevTools: () => Promise<void>
+    setZoomLevel: (level: number) => Promise<void>
+    find: (query: string) => Promise<{ matches: number }>
+    findNext: () => Promise<void>
+    findPrevious: () => Promise<void>
+    stopFind: () => Promise<void>
+    toggleFullscreen: () => Promise<void>
+    print: () => Promise<void>
     onTabsUpdated: (callback: (data: { tabs: TabInfo[]; activeId: string | null }) => void) => void
+    onInlineSelection: (callback: (data: { text: string; x: number; y: number }) => void) => void
+    onDownloadUpdated: (callback: (data: any) => void) => void
   }
   settings: {
     get: () => Promise<'autonomous' | 'confirmation'>

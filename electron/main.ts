@@ -28,6 +28,7 @@ class BrowserViewManager {
   private activeTabId: string | null = null
   private window: BrowserWindow
   public isVisible: boolean = true
+  private customBounds: { x: number; y: number; width: number; height: number } | null = null
   private onUpdate: (tabs: TabInfo[], activeId: string | null) => void
 
   constructor(window: BrowserWindow, onUpdate: (tabs: TabInfo[], activeId: string | null) => void) {
@@ -60,6 +61,10 @@ class BrowserViewManager {
   getActiveView(): BrowserView | null {
     if (!this.activeTabId) return null
     return this.views.get(this.activeTabId) || null
+  }
+
+  getView(tabId: string): BrowserView | null {
+    return this.views.get(tabId) || null
   }
 
   createTab(id?: string): string {
@@ -104,13 +109,57 @@ class BrowserViewManager {
       contextMenu.popup()
     })
 
+    // ── Inject Inline Assistant content script ─────────────────────
+    const INLINE_ASSISTANT_PATH = join(__dirname, '..', 'public', 'inline-assistant.js')
+    view.webContents.on('did-finish-load', () => {
+      try {
+        const fs = require('fs')
+        const script = fs.readFileSync(INLINE_ASSISTANT_PATH, 'utf8')
+        view.webContents.executeJavaScript(script).catch(() => {})
+      } catch (err) {
+        log.warn(`Failed to inject inline assistant script: ${err}`)
+      }
+    })
+
     view.webContents.on('did-start-loading', () => {
       log.info(`[${tabId}] Loading started`)
       this.notify()
     })
 
+    const injectCorners = () => {
+      view.webContents.insertCSS(`
+        #opencomet-corner-mask {
+          position: fixed !important;
+          inset: 0 !important;
+          pointer-events: none !important;
+          z-index: 2147483647 !important;
+        }
+        #opencomet-corner-mask > div {
+          position: absolute;
+          width: 12px;
+          height: 12px;
+        }
+        #opencomet-corner-mask > .tl { top: 0; left: 0; background: radial-gradient(circle at 12px 12px, transparent 12px, #0d1017 13px); }
+        #opencomet-corner-mask > .tr { top: 0; right: 0; background: radial-gradient(circle at 0px 12px, transparent 12px, #0d1017 13px); }
+        #opencomet-corner-mask > .bl { bottom: 0; left: 0; background: radial-gradient(circle at 12px 0px, transparent 12px, #0d1017 13px); }
+        #opencomet-corner-mask > .br { bottom: 0; right: 0; background: radial-gradient(circle at 0px 0px, transparent 12px, #0d1017 13px); }
+      `).catch(() => {})
+
+      view.webContents.executeJavaScript(`
+        if (!document.getElementById('opencomet-corner-mask')) {
+          const mask = document.createElement('div');
+          mask.id = 'opencomet-corner-mask';
+          mask.innerHTML = '<div class="tl"></div><div class="tr"></div><div class="bl"></div><div class="br"></div>';
+          document.documentElement.appendChild(mask);
+        }
+      `).catch(() => {})
+    }
+
+    view.webContents.on('dom-ready', injectCorners)
+
     view.webContents.on('did-stop-loading', () => {
       log.info(`[${tabId}] Loading stopped`)
+      injectCorners()
       this.notify()
     })
 
@@ -200,7 +249,12 @@ class BrowserViewManager {
 
   setActiveTab(tabId: string): boolean {
     const view = this.views.get(tabId)
-    if (!view) return false
+    if (!view) {
+      log.error(`setActiveTab: tab not found - ${tabId}`)
+      return false
+    }
+
+    log.info(`setActiveTab: switching from ${this.activeTabId} to ${tabId}, isVisible: ${this.isVisible}`)
 
     if (this.activeTabId) {
       const oldView = this.views.get(this.activeTabId)
@@ -213,6 +267,9 @@ class BrowserViewManager {
     if (this.isVisible) {
       this.window.addBrowserView(view)
       this.positionView(view)
+      log.info(`setActiveTab: added browser view for ${tabId}`)
+    } else {
+      log.info(`setActiveTab: not adding view because isVisible is false`)
     }
 
     log.info(`Activated tab: ${tabId}`)
@@ -222,38 +279,67 @@ class BrowserViewManager {
 
   setVisibility(visible: boolean) {
     this.isVisible = visible
-    log.info(`Setting browser view visibility to: ${visible}`)
+    log.info(`setVisibility: Setting browser view visibility to: ${visible}, activeTabId: ${this.activeTabId}`)
 
-    if (this.activeTabId) {
-      const view = this.views.get(this.activeTabId)
-      if (view) {
-        if (visible) {
-          this.window.addBrowserView(view)
-          this.positionView(view)
-        } else {
-          this.window.removeBrowserView(view)
-        }
-      }
+    if (!this.activeTabId) {
+      log.warn(`setVisibility: no active tab`)
+      return
     }
+
+    const view = this.views.get(this.activeTabId)
+    if (!view) {
+      log.error(`setVisibility: active tab view not found`)
+      return
+    }
+
+    setTimeout(() => {
+      if (visible) {
+        this.window.addBrowserView(view)
+        this.positionView(view)
+        log.info(`setVisibility: added and positioned view`)
+      } else {
+        this.window.removeBrowserView(view)
+        log.info(`setVisibility: removed view`)
+      }
+    }, 50)
   }
 
   private positionView(view: BrowserView) {
+    if (this.customBounds) {
+      view.setBounds(this.customBounds)
+      view.setAutoResize({ width: false, height: false, horizontal: false, vertical: false })
+      return
+    }
+
     const [width, height] = this.window.getContentSize()
-    const tabBarHeight = 72
-    const sidebarWidth = 0
+    const headerHeight = 73 // Exact height of the React tabbar
+    const topMargin = 8 // Additional margin to push it below the URL bar drop-shadow/glow
+    // Maintain a nice consistent 8px inset framing the view
+    const insetX = 8
+    const insetBottom = 8
+
     view.setBounds({
-      x: sidebarWidth,
-      y: tabBarHeight,
-      width: width - sidebarWidth,
-      height: height - tabBarHeight
+      x: insetX,
+      y: headerHeight + topMargin,
+      width: width - (insetX * 2),
+      height: height - headerHeight - topMargin - insetBottom
     })
-    view.setAutoResize({ width: true, height: true, horizontal: true, vertical: true })
+    view.setAutoResize({ width: true, height: true, horizontal: false, vertical: false })
   }
 
   resizeAll() {
     const view = this.activeTabId ? this.views.get(this.activeTabId) : null
     if (view) {
       this.positionView(view)
+    }
+  }
+
+  setBounds(bounds: { x: number; y: number; width: number; height: number }) {
+    this.customBounds = bounds
+    const view = this.activeTabId ? this.views.get(this.activeTabId) : null
+    if (view && this.isVisible) {
+      view.setBounds(this.customBounds)
+      view.setAutoResize({ width: false, height: false, horizontal: false, vertical: false })
     }
   }
 
@@ -430,6 +516,8 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
+    frame: false,
+    transparent: true,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -546,16 +634,31 @@ function setupIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('browser:setBounds', (_event, bounds: { x: number; y: number; width: number; height: number }) => {
+    log.info(`browser:setBounds called with bounds: ${JSON.stringify(bounds)}`);
+    if (viewManager) {
+      viewManager.setBounds(bounds)
+    }
+    return { success: true }
+  })
+
   // ── Window controls ─────────────────────────────────────────────
   ipcMain.handle('window:minimize', () => {
     mainWindow?.minimize()
   })
 
   ipcMain.handle('window:maximize', () => {
-    if (mainWindow?.isMaximized()) {
+    if (mainWindow?.isFullScreen()) {
+      mainWindow.setFullScreen(false)
+    } else if (mainWindow?.isMaximized()) {
       mainWindow.unmaximize()
     } else {
-      mainWindow?.maximize()
+      // On Mac, the default behavior of the green dot is fullscreen
+      if (process.platform === 'darwin') {
+        mainWindow?.setFullScreen(true)
+      } else {
+        mainWindow?.maximize()
+      }
     }
   })
 
@@ -577,6 +680,80 @@ function setupIpcHandlers() {
       const activeView = viewManager.getActiveView()
       if (activeView) {
         activeView.webContents.closeDevTools()
+      }
+    }
+  })
+
+  ipcMain.handle('browser:setZoomLevel', (_event, level: number) => {
+    if (viewManager) {
+      const activeView = viewManager.getActiveView()
+      if (activeView) {
+        activeView.webContents.setZoomFactor(level)
+      }
+    }
+  })
+
+  ipcMain.handle('browser:find', async (_event, query: string) => {
+    if (!viewManager) return { matches: 0 }
+    const activeView = viewManager.getActiveView()
+    if (!activeView) return { matches: 0 }
+    
+    try {
+      const matches = await activeView.webContents.findInPage(query, { matchCase: false })
+      return { matches: matches }
+    } catch {
+      return { matches: 0 }
+    }
+  })
+
+  ipcMain.handle('browser:findNext', () => {
+    if (viewManager) {
+      const activeView = viewManager.getActiveView()
+      if (activeView) {
+        activeView.webContents.findInPage(' ', { forward: true })
+      }
+    }
+  })
+
+  ipcMain.handle('browser:findPrevious', () => {
+    if (viewManager) {
+      const activeView = viewManager.getActiveView()
+      if (activeView) {
+        activeView.webContents.findInPage(' ', { forward: false })
+      }
+    }
+  })
+
+  ipcMain.handle('browser:stopFind', () => {
+    if (viewManager) {
+      const activeView = viewManager.getActiveView()
+      if (activeView) {
+        activeView.webContents.stopFindInPage('clearSelection')
+      }
+    }
+  })
+
+  ipcMain.handle('browser:stop', (_event, tabId: string) => {
+    if (viewManager) {
+      const view = viewManager.getView(tabId)
+      if (view) {
+        view.webContents.stop()
+      }
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('browser:toggleFullscreen', () => {
+    if (mainWindow) {
+      mainWindow.setFullScreen(!mainWindow.isFullScreen())
+    }
+  })
+
+  ipcMain.handle('browser:print', () => {
+    if (viewManager) {
+      const activeView = viewManager.getActiveView()
+      if (activeView) {
+        activeView.webContents.print({ silent: false, printBackground: true })
       }
     }
   })

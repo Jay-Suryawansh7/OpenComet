@@ -38,11 +38,53 @@
 
 /* ── Row 1: Tabs row ─────────────────────────────────────── */
 
-/* macOS traffic light spacer (the OS renders the actual dots) */
-.tabbar-traffic-spacer {
+/* Custom macOS-style traffic lights built in HTML */
+.mac-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
   width: 72px;
   height: 100%;
-  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.mac-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.1s;
+}
+
+.mac-dot svg {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.mac-window-controls:hover .mac-dot svg {
+  opacity: 1;
+}
+
+/* Base colors for the dots */
+.mac-dot.close { background-color: #ff5f56; border: 1px solid #e0443e; }
+.mac-dot.minimize { background-color: #ffbd2e; border: 1px solid #dea123; }
+.mac-dot.maximize { background-color: #27c93f; border: 1px solid #1aab29; }
+
+/* Active press state */
+.mac-dot.close:active { background-color: #bf4942; border-color: #a83530; }
+.mac-dot.minimize:active { background-color: #bf8e22; border-color: #a5781a; }
+.mac-dot.maximize:active { background-color: #1d9730; border-color: #147920; }
+
+.mac-expand-icon {
+  display: none;
 }
 
 /* Tabs region — scrolls horizontally, fills space */

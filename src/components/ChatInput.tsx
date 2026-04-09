@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Mic, ArrowRight } from 'lucide-react'
 import { ModelSelector } from '@/components/ModelSelector'
+import { ShortcutsPicker } from '@/components/QueryShortcuts'
 import { cn } from '@/lib/utils'
+import { useShortcutsStore } from '@/store/shortcutsStore'
 
 interface ChatInputProps {
   onSubmit: (message: string) => void
@@ -12,10 +14,28 @@ export function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const { getShortcutByTrigger } = useShortcutsStore()
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading) return
-    onSubmit(input.trim())
+
+    const text = input.trim()
+
+    if (text.startsWith('/')) {
+      const trigger = text.split(' ')[0]
+      const shortcut = getShortcutByTrigger(trigger)
+      if (shortcut) {
+        const query = text.substring(trigger.length).trim()
+        const fullPrompt = shortcut.prompt.replace('{query}', query || ' ')
+        onSubmit(fullPrompt)
+        setInput('')
+        setShowShortcuts(false)
+        return
+      }
+    }
+
+    onSubmit(text)
     setInput('')
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -26,6 +46,41 @@ export function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
+    }
+    if (e.key === '/' && input === '') {
+      e.preventDefault()
+      setShowShortcuts(true)
+    }
+    if (e.key === 'Escape') {
+      setShowShortcuts(false)
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setInput(value)
+
+    if (value.startsWith('/')) {
+      const trigger = value.split(' ')[0]
+      const shortcut = getShortcutByTrigger(trigger)
+      if (shortcut) {
+        setShowShortcuts(false)
+      } else {
+        setShowShortcuts(true)
+      }
+    } else if (value === '') {
+      setShowShortcuts(false)
+    }
+  }
+
+  const handleShortcutSelect = (prompt: string) => {
+    const text = input.replace(/^\/.*/, '').trim()
+    const fullPrompt = prompt.replace('{query}', text)
+    onSubmit(fullPrompt)
+    setInput('')
+    setShowShortcuts(false)
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
     }
   }
 
@@ -57,7 +112,7 @@ export function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
     recognition.continuous = false
     recognition.interimResults = false
     recognition.lang = 'en-US'
-    recognition.onresult = (event: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => {
+    recognition.onresult = (event: { results: { 0: { 0: { transcript: string } } } }) => {
       const transcript = event.results[0][0].transcript
       setInput((prev) => prev + transcript)
     }
@@ -76,7 +131,7 @@ export function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
   }, [input])
 
   return (
-    <div className="w-full max-w-[640px] mx-auto">
+    <div className="w-full max-w-[640px] mx-auto relative">
       <input
         type="file"
         ref={fileInputRef}
@@ -84,15 +139,24 @@ export function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
         className="hidden"
         accept=".txt,.md,.json,.csv,.js,.ts,.py,.html,.css"
       />
+      
+      {/* Shortcuts picker */}
+      {showShortcuts && (
+        <ShortcutsPicker
+          onSelect={handleShortcutSelect}
+          onClose={() => setShowShortcuts(false)}
+        />
+      )}
+
       <div className="relative rounded-2xl border border-white/[0.08] bg-[#161a22]/80 backdrop-blur-xl shadow-[0_2px_40px_-8px_rgba(0,0,0,0.5)] transition-shadow focus-within:shadow-[0_2px_40px_-8px_rgba(34,211,238,0.08)] focus-within:border-white/[0.12]">
         {/* Textarea */}
         <div className="px-4 pt-3.5 pb-1">
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Type @ for connectors and sources"
+            placeholder="Type @ for connectors, / for shortcuts..."
             rows={1}
             disabled={isLoading}
             className="w-full resize-none bg-transparent text-[14px] text-white/80 placeholder:text-white/25 focus:outline-none leading-relaxed"
